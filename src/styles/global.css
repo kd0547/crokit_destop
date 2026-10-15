@@ -1,0 +1,141 @@
+@import "./theme.css";
+@import "@fontsource-variable/inter";
+@import "@phosphor-icons/web/regular";
+@import "@phosphor-icons/web/fill";
+@import "@phosphor-icons/web/bold";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.45;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+input {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--color-text);
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.btn-primary:hover {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.btn-ghost {
+  color: var(--color-accent);
+}
+.btn-ghost:hover {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+.btn-block {
+  width: 100%;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-800);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.history-row:hover {
+  background: var(--color-hover);
+}
+
+/* library layer (src/components/LibraryLayer.tsx) */
+.lib-card .lib-cover {
+  transition: border-color 0.12s, transform 0.12s;
+}
+.lib-card:hover .lib-cover {
+  border-color: var(--color-border-strong);
+  transform: translateY(-1px);
+}
+.lib-card .lib-hover {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.lib-card:hover .lib-hover {
+  opacity: 1;
+}
+.lib-check:hover {
+  border-color: var(--color-accent-400) !important;
+}
+.lib-crumb:hover {
+  background: var(--color-hover);
+  color: var(--color-text) !important;
+}
+.lib-img:hover {
+  border-color: var(--color-accent-600) !important;
+}

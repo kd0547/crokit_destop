@@ -1,0 +1,61 @@
+{
+  "name": "crokit-desktop",
+  "productName": "crokit",
+  "version": "2.0.0",
+  "description": "크로키 연습용 레퍼런스 뷰어 (Electron + React + Python)",
+  "main": "dist-electron/main.js",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "python:setup": "python -m venv python\\.venv && python\\.venv\\Scripts\\pip install -r python\\requirements.txt",
+    "python:build": "cd python && .venv\\Scripts\\pip install -q -r requirements-build.txt && .venv\\Scripts\\python -m PyInstaller run_backend.py --name crokit-backend --onedir --noconfirm --clean --collect-submodules uvicorn --distpath dist --workpath build --specpath build",
+    "dist": "npm run python:build && npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@phosphor-icons/web": "^2.1.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "@types/react": "^18.3.10",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^32.1.2",
+    "electron-builder": "^25.0.5",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6"
+  },
+  "build": {
+    "appId": "com.crokit.desktop",
+    "productName": "crokit",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist",
+      "dist-electron"
+    ],
+    "extraResources": [
+      {
+        "from": "python/dist/crokit-backend",
+        "to": "backend"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "logo.ico"
+    },
+    "nsis": {
+      "installerIcon": "logo.ico",
+      "uninstallerIcon": "logo.ico"
+    }
+  }
+}

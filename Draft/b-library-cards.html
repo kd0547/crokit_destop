@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>시안 B · 라이브러리 카드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css" />
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css" />
+<link rel="stylesheet" href="base.css" />
+<style>
+  /* ---- 사이드바: 선택 요약 카드 ---- */
+  .fb-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radius-md); background: var(--color-surface-2); border: 1px solid var(--color-border-2); }
+  .fb-mosaic { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; height: 54px; border-radius: 6px; overflow: hidden; }
+  .fb-mosaic span { display: block; }
+  .fb-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .fb-open { width: 100%; height: 34px; }
+  .side-note { font-size: 11.5px; line-height: 1.6; color: var(--color-neutral-500); padding: 12px; border-radius: var(--radius-md); border: 1px dashed var(--color-border-strong); }
+  .side-note b { color: var(--color-neutral-300); font-weight: 500; }
+
+  /* ---- 스테이지 오버레이 ---- */
+  .lib { position: absolute; inset: 0; z-index: 8; background: var(--color-bg); display: flex; flex-direction: column; }
+  .lib-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--color-border); }
+  .crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 0 1 auto; overflow: hidden; font-size: 13px; }
+  .crumbs button { height: 28px; padding: 0 8px; border-radius: 6px; color: var(--color-neutral-500); white-space: nowrap; }
+  .crumbs button:hover { background: var(--color-hover); color: var(--color-text); }
+  .crumbs button.cur { color: var(--color-text); font-weight: 500; }
+  .crumbs i.sep { color: var(--color-neutral-800); font-size: 12px; }
+  .lib-search { display: flex; align-items: center; gap: 8px; flex: 0 1 220px; min-width: 110px; height: 32px; padding: 0 10px; border-radius: 8px; background: var(--color-surface-2); border: 1px solid var(--color-border-2); }
+  .lib-search input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; font-size: 12.5px; }
+  .seg { display: flex; padding: 2px; gap: 2px; border-radius: 8px; background: var(--color-surface-2); border: 1px solid var(--color-border-2); }
+  .seg button { width: 28px; height: 26px; border-radius: 6px; color: var(--color-neutral-600); }
+  .seg button.on { background: var(--color-border-3); color: var(--color-text); }
+
+  .lib-body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px 120px; }
+  .here { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 22px; }
+  .here h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+  .here .meta { font-size: 12px; color: var(--color-neutral-600); margin-top: 3px; }
+  .sec-title { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 11px; letter-spacing: .06em; color: var(--color-neutral-600); }
+  .sec-title .line { flex: 1; height: 1px; background: var(--color-divider); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--card-w, 200px), 1fr)); gap: 14px; margin-bottom: 28px; }
+  .fcard { position: relative; display: flex; flex-direction: column; gap: 8px; text-align: left; cursor: pointer; }
+  .fcard .cover {
+    position: relative; aspect-ratio: 4/3; border-radius: 10px; overflow: hidden; display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;
+    background: var(--color-surface); border: 1px solid var(--color-divider); transition: border-color .12s, transform .12s;
+  }
+  .fcard .cover span:first-child { grid-row: span 2; }
+  .fcard .cover.single { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  .fcard .cover.single span:first-child { grid-row: auto; }
+  .fcard:hover .cover { border-color: var(--color-border-strong); transform: translateY(-1px); }
+  .fcard.all .cover { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
+  .fcard.some .cover { border-color: var(--color-accent-700); }
+  .fcard .cbox { position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; border-radius: 6px; font-size: 13px; background: rgba(7,8,12,.6); backdrop-filter: blur(4px); border-color: rgba(233,233,237,.4); }
+  .fcard .cbox.all { background: var(--color-accent); border-color: var(--color-accent); }
+  .fcard .cbox.some { background: var(--color-accent-800); }
+  .fcard .badge { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 11px; background: rgba(7,8,12,.66); color: var(--color-neutral-300); backdrop-filter: blur(4px); }
+  .fcard .enter { position: absolute; right: 8px; bottom: 8px; height: 26px; padding: 0 10px; border-radius: 6px; display: none; align-items: center; gap: 5px; font-size: 11.5px; background: rgba(7,8,12,.75); color: var(--color-text); }
+  .fcard:hover .enter { display: inline-flex; }
+  .fcard .label { display: flex; align-items: baseline; gap: 8px; padding: 0 2px; }
+  .fcard .label .nm { flex: 1; min-width: 0; font-weight: 500; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fcard .label .crumb { display: block; font-size: 11px; color: var(--color-neutral-700); font-weight: 400; }
+  .fcard.all .label .count { color: var(--color-accent-400); }
+  .add-card { aspect-ratio: 4/3; border-radius: 10px; border: 1.5px dashed var(--color-border-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--color-neutral-600); font-size: 12px; }
+  .add-card i { font-size: 26px; }
+  .add-card:hover { border-color: var(--color-accent-600); color: var(--color-accent-300); }
+
+  .imgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+  .imgs span { aspect-ratio: 3/4; border-radius: 5px; border: 1px solid var(--color-divider); }
+  .imgs.dim span { opacity: .45; }
+
+  .tray {
+    position: absolute; left: 20px; right: 20px; bottom: 16px; display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 16px;
+    border-radius: 14px; background: rgba(19,20,28,.94); border: 1px solid var(--color-border-3); box-shadow: 0 18px 50px rgba(0,0,0,.6); backdrop-filter: blur(8px);
+  }
+  .tray .total { flex: none; font-size: 12px; color: var(--color-neutral-400); }
+  .tray .total b { display: block; font-size: 18px; color: var(--color-text); font-weight: 600; line-height: 1.1; }
+  .tray .chips-row { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .tray .chips-row::-webkit-scrollbar { display: none; }
+</style>
+</head>
+<body>
+<script src="shared.js"></script>
+<script>
+  renderShell({ draft: "B" });
+
+  // 초기 상태: 레퍼런스 › 포즈 에 들어와 있고, 여성 전체 + 손 + 동물 선택
+  let cwd = NODES.f1;
+  let query = "";
+  let cardW = 200;
+  let libOpen = true;
+  setSubtree(NODES.f6, true);
+  setSubtree(NODES.f11, true);
+  setSubtree(TREE[2], true);
+
+  const slot = document.getElementById("folder-slot");
+  const stage = document.getElementById("stage");
+  stage.insertAdjacentHTML("beforeend", `<div class="lib" id="lib"></div>`);
+  const lib = document.getElementById("lib");
+
+  // ---------- 사이드바 ----------
+  function renderSide() {
+    const s = selSummary();
+    const pics = [];
+    s.forEach(({ node }) => previewsOf(node, 2).forEach((p) => pics.push(p)));
+    slot.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="section-label">사진 폴더</div>
+        <div class="fb-card">
+          <div class="fb-mosaic">${pics.slice(0, 4).map(([n, i]) => `<span style="background:${thumbBg(n, i)}"></span>`).join("") || '<span style="grid-column:span 4;background:var(--color-surface)"></span>'}</div>
+          <div style="display:flex;align-items:baseline;gap:6px">
+            <span style="font-weight:500">${s.length ? `${s.length}개 폴더` : "선택 없음"}</span>
+            <span class="count">${selTotal()}장</span>
+          </div>
+          <div class="fb-chips">${s.map(({ node, onlyDirect }) => chipHtml(node, onlyDirect)).join("")}</div>
+          <button class="btn btn-primary fb-open" data-open><i class="ph ph-squares-four"></i>${libOpen ? "라이브러리 닫기" : "라이브러리에서 고르기"}</button>
+        </div>
+      </div>
+      <div class="side-note">
+        <b>시안 B — 라이브러리 카드</b><br>
+        폴더 고르기를 사이드바가 아니라 <b>스테이지 전체</b>에서 합니다. 폴더는 대표 사진 3장을 붙인 카드로 보이고,
+        카드를 누르면 안으로 들어가고 왼쪽 위 체크로 선택해요. 아래 트레이에 선택이 모입니다.
+      </div>`;
+  }
+  function chipHtml(node, onlyDirect) {
+    const parent = node.parent ? `<span class="crumb">${esc(node.parent.name)} ›</span>` : "";
+    return `<span class="sel-chip" title="${esc(fullPath(node))}">${parent}${esc(node.name)}${onlyDirect ? " (이 폴더만)" : ""}<button class="x" data-unsel="${node.id}" data-direct="${onlyDirect ? 1 : ""}"><i class="ph ph-x"></i></button></span>`;
+  }
+
+  // ---------- 라이브러리 ----------
+  function cardHtml(node, showCrumb) {
+    const st = selState(node);
+    const pv = previewsOf(node, 3);
+    const subs = node.children.length;
+    return `<div class="fcard ${st}" data-enter="${node.id}">
+      <div class="cover ${pv.length < 3 ? "single" : ""}">${pv.map(([n, i]) => `<span style="background:${thumbBg(n, i)}"></span>`).join("")}</div>
+      ${cboxHtml(node)}
+      ${subs ? `<span class="badge"><i class="ph ph-folders"></i>하위 ${subs}</span>` : node.gif ? '<span class="badge">GIF</span>' : ""}
+      <span class="enter">열기<i class="ph ph-arrow-right"></i></span>
+      <div class="label"><span class="nm">${highlight(node.name, query)}${showCrumb && node.parent ? `<span class="crumb">${esc(fullPath(node.parent))}</span>` : ""}</span><span class="count">${node.total}장</span></div>
+    </div>`;
+  }
+
+  function renderLib() {
+    lib.style.display = libOpen ? "flex" : "none";
+    if (!libOpen) return;
+    const trail = cwd ? ancestors(cwd) : [];
+    const crumbs = [`<button data-go="" class="${cwd ? "" : "cur"}"><i class="ph ph-books"></i> 라이브러리</button>`]
+      .concat(trail.map((n, i) => `<i class="ph ph-caret-right sep"></i><button data-go="${n.id}" class="${i === trail.length - 1 ? "cur" : ""}">${esc(n.name)}</button>`)).join("");
+
+    let body = "";
+    if (query) {
+      const hits = allNodes().filter((n) => n.name.toLowerCase().includes(query.toLowerCase()));
+      body = `<div class="sec-title">'${esc(query)}' 검색 결과 ${hits.length}<span class="line"></span></div>
+        ${hits.length ? `<div class="grid">${hits.map((n) => cardHtml(n, true)).join("")}</div>` : '<div class="empty-note">일치하는 폴더가 없습니다</div>'}`;
+    } else if (!cwd) {
+      body = `<div class="here"><div><h2>라이브러리</h2><div class="meta">등록한 폴더 ${TREE.length}개 · 전체 ${TREE.reduce((s, n) => s + n.total, 0)}장</div></div></div>
+        <div class="sec-title">등록된 폴더<span class="line"></span></div>
+        <div class="grid">${TREE.map((n) => cardHtml(n)).join("")}
+          <button class="add-card"><i class="ph ph-folder-simple-plus"></i>폴더 등록<span style="font-size:11px;color:var(--color-neutral-700)">또는 여기로 끌어다 놓기</span></button></div>`;
+    } else {
+      const st = selState(cwd);
+      const directOn = sel.has(cwd.id);
+      body = `<div class="here">
+          <div style="flex:1;min-width:0"><h2>${esc(cwd.name)}</h2>
+          <div class="meta">${esc(rootOf(cwd).path)}${cwd.depth ? "\\" + ancestors(cwd).slice(1).map((a) => a.name).join("\\") : ""} · 하위 포함 ${cwd.total}장${cwd.children.length ? ` · 하위 폴더 ${cwd.children.length}개` : ""}</div></div>
+          <button class="btn ${st === "all" ? "btn-ghost" : "btn-primary"}" data-check="${cwd.id}">
+            <i class="ph ${st === "all" ? "ph-check-square" : "ph-plus-square"}"></i>${st === "all" ? "선택됨 · 해제" : cwd.children.length ? "이 폴더 전체 선택 (하위 포함)" : "이 폴더 선택"}</button>
+        </div>
+        ${cwd.children.length ? `<div class="sec-title">하위 폴더 ${cwd.children.length}<span class="line"></span></div><div class="grid">${cwd.children.map((n) => cardHtml(n)).join("")}</div>` : ""}
+        ${cwd.n ? `<div class="sec-title">
+            ${cwd.children.length ? `<span class="cbox ${directOn ? "all" : "none"}" data-direct="${cwd.id}">${directOn ? '<i class="ph-bold ph-check"></i>' : ""}</span>` : ""}
+            이 폴더의 이미지 ${cwd.n}장${cwd.children.length ? " · 하위 폴더 제외" : ""}<span class="line"></span></div>
+          <div class="imgs ${directOn ? "" : "dim"}">${Array.from({ length: cwd.n }, (_, i) => `<span style="background:${thumbBg(cwd, i)}"></span>`).join("")}</div>` : ""}`;
+    }
+
+    const s = selSummary();
+    lib.innerHTML = `
+      <div class="lib-head">
+        <button class="btn btn-quiet btn-icon" data-up title="상위 폴더" ${cwd || query ? "" : "disabled style='opacity:.3'"}><i class="ph ph-arrow-up"></i></button>
+        <nav class="crumbs">${crumbs}</nav>
+        <span style="flex:1"></span>
+        <label class="lib-search"><i class="ph ph-magnifying-glass" style="color:var(--color-neutral-600)"></i><input id="q" placeholder="모든 폴더에서 검색" value="${esc(query)}" /></label>
+        <div class="seg"><button data-size="160" class="${cardW === 160 ? "on" : ""}" title="작게"><i class="ph ph-dots-nine"></i></button><button data-size="240" class="${cardW === 240 ? "on" : ""}" title="크게"><i class="ph ph-squares-four"></i></button></div>
+        <button class="btn btn-quiet btn-icon" data-open title="닫기"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="lib-body" style="--card-w:${cardW}px">${body}</div>
+      <div class="tray">
+        <div class="total"><b>${selTotal()}장</b>${s.length}개 폴더</div>
+        <div class="chips-row">${s.map(({ node, onlyDirect }) => chipHtml(node, onlyDirect)).join("") || '<span class="count" style="align-self:center">체크한 폴더가 여기 모입니다</span>'}</div>
+        <button class="btn btn-quiet" data-clear style="flex:none">모두 해제</button>
+        <button class="btn btn-fill" data-open style="flex:none;height:36px;padding:0 16px"><i class="ph-fill ph-play"></i>이 구성으로 시작</button>
+      </div>`;
+    if (query) { const q = document.getElementById("q"); q.focus(); q.setSelectionRange(query.length, query.length); }
+  }
+
+  function render() { renderSide(); renderLib(); }
+  window.addEventListener("selchange", render);
+  emitSel();
+
+  // ---------- 상호작용 ----------
+  document.addEventListener("click", (e) => {
+    const t = e.target;
+    const un = t.closest("[data-unsel]");
+    if (un) {
+      const n = NODES[un.dataset.unsel];
+      un.dataset.direct ? sel.delete(n.id) : setSubtree(n, false);
+      return emitSel();
+    }
+    if (t.closest("[data-open]")) { libOpen = !libOpen; return render(); }
+    if (t.closest("[data-clear]")) return clearSel();
+    const direct = t.closest("[data-direct]");
+    if (direct && direct.classList.contains("cbox")) { const n = NODES[direct.dataset.direct]; sel.has(n.id) ? sel.delete(n.id) : sel.add(n.id); return emitSel(); }
+    const check = t.closest("[data-check]");
+    if (check) return toggleSel(NODES[check.dataset.check]);
+    const go = t.closest("[data-go]");
+    if (go) { cwd = go.dataset.go ? NODES[go.dataset.go] : null; query = ""; return renderLib(); }
+    if (t.closest("[data-up]")) { if (query) query = ""; else if (cwd) cwd = cwd.parent; return renderLib(); }
+    const size = t.closest("[data-size]");
+    if (size) { cardW = +size.dataset.size; return renderLib(); }
+    const enter = t.closest("[data-enter]");
+    if (enter) { cwd = NODES[enter.dataset.enter]; query = ""; return renderLib(); }
+  });
+  document.addEventListener("input", (e) => { if (e.target.id === "q") { query = e.target.value.trim(); renderLib(); } });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Backspace" && e.target.tagName !== "INPUT" && cwd) { cwd = cwd.parent; renderLib(); }
+  });
+</script>
+</body>
+</html>
