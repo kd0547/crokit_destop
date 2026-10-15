@@ -13,3 +13,20 @@ python/**/__pycache__/
 *.pyc
 
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / editor
+.idea/
+**/.idea/
+.vscode/
+*.swp
+
+# Claude Code local config
+.claude/
+
+# Logs & env
+*.log
+npm-debug.log*
+.env
+.env.*
