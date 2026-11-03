@@ -171,7 +171,23 @@ export function browseStep(delta: number): void {
   const count = useFolderStore.getState().files.length;
   if (count === 0) return;
   const ui = useUiStore.getState();
+  ui.setSequence(null);
   ui.setCurrentIndex((ui.currentIndex + delta + count) % count, true);
+}
+
+/**
+ * Play photos picked in the library one after another, like a GIF: they become
+ * the frames of the GIF player (scrubber, speed, A/B loop, freeze all apply).
+ */
+export function playSequence(paths: string[]): void {
+  if (paths.length < 2) return;
+  const ui = useUiStore.getState();
+  ui.setSequence(paths);
+  ui.setBrowsing(false);
+}
+
+export function stopSequence(): void {
+  useUiStore.getState().setSequence(null);
 }
 
 /**
@@ -199,6 +215,7 @@ export async function setImageFlags(targets: FolderFile[], fields: Partial<Image
 }
 
 export function openInBrowsing(index: number): void {
+  useUiStore.getState().setSequence(null);
   useUiStore.getState().setCurrentIndex(index, true);
   useUiStore.getState().setBrowsing(false);
 }
@@ -212,6 +229,7 @@ export async function startSession(): Promise<void> {
   const files = useFolderStore.getState().files;
   const folders = useFolderStore.getState().folders;
   if (!settings || files.length === 0) return;
+  stopSequence();
   const items = settings.folder_selection;
   const rootIds = new Set(items.map((i) => i.folder_id));
   const ui = useUiStore.getState();

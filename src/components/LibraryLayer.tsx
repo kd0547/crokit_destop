@@ -10,6 +10,7 @@ import {
   openInBrowsing,
   removeFolder,
   removeSelectionItem,
+  playSequence,
   rescanFolders,
   setImageFlags,
   startSession,
@@ -534,6 +535,8 @@ function DirectImages({
   const indexByPath = useMemo(() => new Map(files.map((f, i) => [f.path, i])), [files]);
   const list = images ?? [];
   const pickedFiles = list.filter((f) => picked.has(f.path));
+  // frames for "play in sequence": picked stills in grid order (a GIF can't be a single frame)
+  const sequenceFrames = pickedFiles.filter((f) => !f.is_gif).map((f) => f.path);
 
   const patch = (results: { path: string; favorite: boolean; hidden: boolean }[]) => {
     const byPath = new Map(results.map((r) => [r.path, r]));
@@ -623,6 +626,10 @@ function DirectImages({
           </BulkButton>
           <BulkButton icon="ph ph-eye" disabled={busy} title={t("library.unhide")} onClick={() => apply(pickedFiles, { hidden: false })}>
             {t("library.bulkUnhide")}
+          </BulkButton>
+          <BarDivider />
+          <BulkButton icon="ph-fill ph-play" disabled={busy || sequenceFrames.length < 2} title={t("library.playSequenceHint")} onClick={() => playSequence(sequenceFrames)}>
+            {t("library.playSequence")}
           </BulkButton>
           <BarDivider />
           <BulkButton icon="ph ph-checks" disabled={busy || picked.size === list.length} title={t("library.selectAll")} onClick={() => setPicked(new Set(list.map((f) => f.path)))} />

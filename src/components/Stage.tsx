@@ -4,7 +4,7 @@ import { useFolderStore } from "@/state/folderStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { useSessionStore } from "@/state/sessionStore";
 import { useUiStore } from "@/state/uiStore";
-import { gifClearRange, gifSetA, gifSetB, gifStep, gifTogglePlay, gifToggleFreeze, loadGifFrames, nextPhoto, prevPhoto, stopSession, togglePause, wake } from "@/state/actions";
+import { gifClearRange, gifSetA, gifSetB, gifStep, gifTogglePlay, gifToggleFreeze, loadGifFrames, nextPhoto, prevPhoto, stopSequence, stopSession, togglePause, wake } from "@/state/actions";
 import { addFolderViaDialog, browseStep, startSession, togglePanel, toggleSetting } from "@/state/actions";
 import { durLabel, fmtClock } from "@/lib/format";
 import { useT } from "@/i18n";
@@ -26,14 +26,19 @@ export function Stage() {
 
   const sessionActive = snapshot.state !== "idle";
   const currentPath = sessionActive ? snapshot.current?.path ?? null : files[ui.currentIndex]?.path ?? null;
-  const currentIsGif = sessionActive ? !!snapshot.current?.isGif : !!files[ui.currentIndex]?.is_gif;
+  // picked photos playing like a GIF (only while no session runs)
+  const sequence = sessionActive ? null : ui.sequence;
+  const currentIsGif = sequence ? true : sessionActive ? !!snapshot.current?.isGif : !!files[ui.currentIndex]?.is_gif;
   const visible = !sessionActive || snapshot.state === "paused" || ui.uiAwake;
   const low = snapshot.state === "running" && snapshot.remainingMs <= 10000;
 
   useEffect(() => {
-    if (currentIsGif && currentPath) loadGifFrames(currentPath);
+    if (sequence) {
+      useUiStore.getState().setGifFrames(sequence);
+      useUiStore.getState().resetGif();
+    } else if (currentIsGif && currentPath) loadGifFrames(currentPath);
     else useUiStore.setState({ gifFrames: [] });
-  }, [currentPath, currentIsGif]);
+  }, [currentPath, currentIsGif, sequence]);
 
   // GIF playback loop
   useEffect(() => {
@@ -155,7 +160,7 @@ export function Stage() {
           </div>
 
           {currentIsGif && (
-            <GifBar frameCount={ui.gifFrames.length} visible={visible} />
+            <GifBar frameCount={ui.gifFrames.length} visible={visible} sequence={!!sequence} />
           )}
 
           {settings && !settings.panel_open ? (
@@ -335,7 +340,7 @@ function ControlDock({ bottom }: { bottom: number }) {
   );
 }
 
-function GifBar({ frameCount, visible }: { frameCount: number; visible: boolean }) {
+function GifBar({ frameCount, visible, sequence }: { frameCount: number; visible: boolean; sequence: boolean }) {
   const ui = useUiStore();
   const playing = ui.gifPlaying && !ui.gifFrozen;
   const hasRange = !(ui.gifA === 0 && ui.gifB === frameCount - 1);
@@ -344,9 +349,9 @@ function GifBar({ frameCount, visible }: { frameCount: number; visible: boolean 
   return (
     <>
       <div style={{ position: "absolute", top: 26, left: 26, zIndex: 5, display: "flex", alignItems: "center", gap: 6, pointerEvents: "none", transition: "opacity .4s", opacity: visible ? 1 : 0.4 }}>
-        <span style={{ display: "inline-flex", alignItems: "center", fontSize: 10, letterSpacing: ".06em", padding: "3px 10px", borderRadius: 6, background: "var(--color-accent-800)", color: "var(--color-accent-100)" }}>GIF</span>
+        <span style={{ display: "inline-flex", alignItems: "center", fontSize: 10, letterSpacing: ".06em", padding: "3px 10px", borderRadius: 6, background: "var(--color-accent-800)", color: "var(--color-accent-100)" }}>{sequence ? t("sequence.badge") : "GIF"}</span>
         <span style={{ fontSize: 11, color: "var(--color-neutral-400)", fontVariantNumeric: "tabular-nums" }}>
-          {t("gif.info", frameCount, GIF_FPS, (frameCount / GIF_FPS).toFixed(1))}
+          {sequence ? t("sequence.info", frameCount, GIF_FPS) : t("gif.info", frameCount, GIF_FPS, (frameCount / GIF_FPS).toFixed(1))}
         </span>
         {ui.gifFrozen && (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, padding: "3px 10px", borderRadius: 6, border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}>
@@ -432,6 +437,7 @@ function GifBar({ frameCount, visible }: { frameCount: number; visible: boolean 
             <i className="ph ph-push-pin" style={{ fontSize: 14 }} />
             {ui.gifFrozen ? t("gif.unfreeze") : t("gif.freeze")}
           </button>
+          {sequence && <ControlIcon icon="ph ph-x" title={t("sequence.close")} onClick={stopSequence} size={30} iconSize={15} />}
         </div>
       </div>
     </>

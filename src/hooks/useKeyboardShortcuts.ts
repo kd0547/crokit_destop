@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useSessionStore } from "@/state/sessionStore";
 import { useFolderStore } from "@/state/folderStore";
 import { useUiStore } from "@/state/uiStore";
-import { browseStep, gifStep, gifTogglePlay, nextPhoto, prevPhoto, startSession, stopSession, togglePanel, togglePause, wake } from "@/state/actions";
+import { browseStep, gifStep, gifTogglePlay, nextPhoto, prevPhoto, startSession, stopSequence, stopSession, togglePanel, togglePause, wake } from "@/state/actions";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -12,6 +12,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 function currentIsGif(): boolean {
   const snapshot = useSessionStore.getState().snapshot;
   if (snapshot.state !== "idle") return !!snapshot.current?.isGif;
+  if (useUiStore.getState().sequence) return true; // picked photos play in the GIF player
   const { files } = useFolderStore.getState();
   const { currentIndex } = useUiStore.getState();
   return !!files[currentIndex]?.is_gif;
@@ -54,6 +55,8 @@ export function useKeyboardShortcuts() {
         useUiStore.getState().setMenuOpen(null);
       } else if (e.key === "Escape" && running) {
         stopSession();
+      } else if (e.key === "Escape" && ui.sequence) {
+        stopSequence();
       }
       wake();
     };

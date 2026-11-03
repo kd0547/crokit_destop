@@ -123,6 +123,8 @@ export const ja: Messages = {
   "library.bulkHide": "非表示",
   "library.bulkUnfavorite": "解除",
   "library.bulkUnhide": "解除",
+  "library.playSequence": "連続再生",
+  "library.playSequenceHint": "選択した写真をGIFのように続けて再生（2枚以上、GIFを除く）",
   "library.selectAll": "すべて選択",
   "library.multiSelectHint": "Ctrl・Shift+クリックで複数選択",
   "library.trayHint": "フォルダカードのチェックボックスで練習するフォルダを選んでください",
@@ -164,6 +166,9 @@ export const ja: Messages = {
   "gif.clearRange": "区間を解除",
   "gif.freeze": "フレーム固定",
   "gif.unfreeze": "固定解除",
+  "sequence.badge": "連続再生",
+  "sequence.info": (count, fps) => `${count}枚 · ${fps}fps`,
+  "sequence.close": "連続再生を閉じる (Esc)",
 
   "menu.file": "ファイル",
   "menu.quit": "終了",

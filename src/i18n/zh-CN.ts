@@ -123,6 +123,8 @@ export const zhCN: Messages = {
   "library.bulkHide": "隐藏",
   "library.bulkUnfavorite": "取消",
   "library.bulkUnhide": "取消",
+  "library.playSequence": "连续播放",
+  "library.playSequenceHint": "将所选图片像 GIF 一样连续播放（至少 2 张，不含 GIF）",
   "library.selectAll": "全选",
   "library.multiSelectHint": "Ctrl/Shift+点击可多选",
   "library.trayHint": "用文件夹卡片上的复选框选择要练习的文件夹",
@@ -164,6 +166,9 @@ export const zhCN: Messages = {
   "gif.clearRange": "清除区间",
   "gif.freeze": "固定帧",
   "gif.unfreeze": "取消固定",
+  "sequence.badge": "连续播放",
+  "sequence.info": (count, fps) => `${count}张 · ${fps}fps`,
+  "sequence.close": "关闭连续播放 (Esc)",
 
   "menu.file": "文件",
   "menu.quit": "退出",

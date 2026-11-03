@@ -126,6 +126,8 @@ export const en: Messages = {
   "library.bulkHide": "Hide",
   "library.bulkUnfavorite": "Remove",
   "library.bulkUnhide": "Show",
+  "library.playSequence": "Play in sequence",
+  "library.playSequenceHint": "Play the selected photos one after another like a GIF (2+ photos, GIFs excluded)",
   "library.selectAll": "Select all",
   "library.multiSelectHint": "Ctrl/Shift+click to select several photos",
   "library.trayHint": "Use the checkboxes on folder cards to choose what to practice",
@@ -167,6 +169,9 @@ export const en: Messages = {
   "gif.clearRange": "Clear loop",
   "gif.freeze": "Pin frame",
   "gif.unfreeze": "Unpin",
+  "sequence.badge": "Sequence",
+  "sequence.info": (count, fps) => `${images(count)} · ${fps}fps`,
+  "sequence.close": "Close sequence (Esc)",
 
   "menu.file": "File",
   "menu.quit": "Quit",

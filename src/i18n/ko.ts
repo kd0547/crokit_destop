@@ -133,6 +133,8 @@ export const ko = {
   "library.bulkHide": "숨기기",
   "library.bulkUnfavorite": "해제",
   "library.bulkUnhide": "해제",
+  "library.playSequence": "연속 재생",
+  "library.playSequenceHint": "선택한 사진을 GIF처럼 이어서 재생 (2장 이상, GIF 제외)",
   "library.selectAll": "전체 선택",
   "library.multiSelectHint": "Ctrl·Shift+클릭으로 여러 장 선택",
   "library.trayHint": "폴더 카드의 체크박스로 연습할 폴더를 고르세요",
@@ -177,6 +179,9 @@ export const ko = {
   "gif.clearRange": "구간 해제",
   "gif.freeze": "프레임 고정",
   "gif.unfreeze": "고정 해제",
+  "sequence.badge": "연속 재생",
+  "sequence.info": (count: number, fps: number) => `${count}장 · ${fps}fps`,
+  "sequence.close": "연속 재생 닫기 (Esc)",
 
   // top bar and menus
   "menu.file": "파일",
