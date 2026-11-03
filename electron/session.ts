@@ -6,6 +6,8 @@ export type SessionState = "idle" | "observe" | "running" | "paused" | "break";
 export interface PlaylistEntry {
   path: string;
   isGif: boolean;
+  /** a saved sequence: its photos, played like a GIF as one item (path = first frame) */
+  frames?: string[];
 }
 
 export interface SessionConfig {

@@ -124,6 +124,18 @@ class FolderFile(BaseModel):
     folder_id: Optional[str] = None  # 이 파일이 속한 등록 폴더 (썸네일 조회용)
     favorite: bool = False
     hidden: bool = False             # 크로키 세션에서 제외 (재생 목록에는 아예 빠짐)
+    sequence_id: Optional[str] = None  # 연속 재생 묶음에 속한 사진이면 그 묶음
+    # 재생 목록에서만: 묶음 하나가 항목 하나가 되고, frames에 묶음 사진들이 순서대로 들어감 (path = 첫 장)
+    frames: list[str] = []
+
+
+class SequenceCreate(BaseModel):
+    paths: list[str] = Field(min_length=2)  # 순서대로, 같은 등록 폴더 안의 사진 (GIF 제외)
+
+
+class SequenceOut(BaseModel):
+    id: str
+    frames: list[str]
 
 
 class ImageFlagsUpdate(BaseModel):

@@ -10,6 +10,8 @@ import {
   openInBrowsing,
   removeFolder,
   removeSelectionItem,
+  ungroupSequences,
+  groupSequence,
   playSequence,
   rescanFolders,
   setImageFlags,
@@ -516,6 +518,7 @@ function DirectImages({
   const [images, setImages] = useState<FolderFile[] | null>(null);
   const [anchor, setAnchor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reload, setReload] = useState(0);
   const showNotice = useUiStore((s) => s.showNotice);
   const t = useT();
 
@@ -530,13 +533,39 @@ function DirectImages({
     return () => {
       cancelled = true;
     };
-  }, [folder.id, node.rel_path, node.count]);
+  }, [folder.id, node.rel_path, node.count, reload]);
 
-  const indexByPath = useMemo(() => new Map(files.map((f, i) => [f.path, i])), [files]);
+  // playlist index per photo; every photo of a sequence points at the sequence's item
+  const indexByPath = useMemo(() => {
+    const map = new Map<string, number>();
+    files.forEach((f, i) => [f.path, ...f.frames].forEach((p) => map.set(p, i)));
+    return map;
+  }, [files]);
   const list = images ?? [];
   const pickedFiles = list.filter((f) => picked.has(f.path));
   // frames for "play in sequence": picked stills in grid order (a GIF can't be a single frame)
   const sequenceFrames = pickedFiles.filter((f) => !f.is_gif).map((f) => f.path);
+  const sequenceSize = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const f of list) if (f.sequence_id) counts.set(f.sequence_id, (counts.get(f.sequence_id) ?? 0) + 1);
+    return counts;
+  }, [list]);
+  const pickedSequences = [...new Set(pickedFiles.map((f) => f.sequence_id).filter((id): id is string => !!id))];
+
+  const changeSequences = async (run: () => Promise<void>, notice: string) => {
+    setBusy(true);
+    try {
+      await run();
+      setReload((n) => n + 1);
+      setPicked(new Set());
+      showNotice(notice);
+    } catch {
+      // the listing reload shows whatever state the backend kept
+      setReload((n) => n + 1);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const patch = (results: { path: string; favorite: boolean; hidden: boolean }[]) => {
     const byPath = new Map(results.map((r) => [r.path, r]));
@@ -631,6 +660,19 @@ function DirectImages({
           <BulkButton icon="ph-fill ph-play" disabled={busy || sequenceFrames.length < 2} title={t("library.playSequenceHint")} onClick={() => playSequence(sequenceFrames)}>
             {t("library.playSequence")}
           </BulkButton>
+          <BulkButton
+            icon="ph ph-film-strip"
+            disabled={busy || sequenceFrames.length < 2}
+            title={t("library.groupSequenceHint")}
+            onClick={() => changeSequences(() => groupSequence(folder.id, sequenceFrames), t("library.grouped"))}
+          >
+            {t("library.groupSequence")}
+          </BulkButton>
+          {pickedSequences.length > 0 && (
+            <BulkButton icon="ph ph-link-break" disabled={busy} title={t("library.ungroupSequence")} onClick={() => changeSequences(() => ungroupSequences(folder.id, pickedSequences), t("library.ungrouped"))}>
+              {t("library.ungroupSequence")}
+            </BulkButton>
+          )}
           <BarDivider />
           <BulkButton icon="ph ph-checks" disabled={busy || picked.size === list.length} title={t("library.selectAll")} onClick={() => setPicked(new Set(list.map((f) => f.path)))} />
           <BulkButton icon="ph ph-x" title={`${t("library.deselect")} (Esc)`} onClick={() => setPicked(new Set())} />
@@ -650,7 +692,10 @@ function DirectImages({
               tabIndex={0}
               aria-selected={isPicked}
               className="lib-img"
-              title={f.hidden ? t("library.hiddenTitle", f.name) : inSelection ? f.name : t("library.notSelected", f.name)}
+              title={
+                (f.hidden ? t("library.hiddenTitle", f.name) : inSelection ? f.name : t("library.notSelected", f.name)) +
+                (f.sequence_id ? ` · ${t("library.sequenceMember", sequenceSize.get(f.sequence_id) ?? 0)}` : "")
+              }
               onClick={(e) => onTileClick(e, f)}
               onMouseDown={(e) => e.shiftKey && e.preventDefault() /* no text selection on Shift+click */}
               onKeyDown={(e) => {
@@ -687,6 +732,13 @@ function DirectImages({
               />
               {f.is_gif && (
                 <span style={{ position: "absolute", top: 5, right: 5, fontSize: 9, letterSpacing: ".04em", padding: "2px 6px", borderRadius: 5, background: "var(--color-accent-800)", color: "var(--color-accent-100)", pointerEvents: "none" }}>GIF</span>
+              )}
+              {f.sequence_id && (
+                // GIFs can't be in a sequence, so this corner is free
+                <span style={{ position: "absolute", top: 5, right: 5, display: "inline-flex", alignItems: "center", gap: 3, fontSize: 9, padding: "2px 6px", borderRadius: 5, background: "rgba(7,8,12,.72)", color: "var(--color-accent-200)", pointerEvents: "none" }}>
+                  <i className="ph ph-film-strip" style={{ fontSize: 10 }} />
+                  {sequenceSize.get(f.sequence_id) ?? ""}
+                </span>
               )}
               {isPicked && (
                 <span style={{ position: "absolute", left: 5, bottom: 5, width: 20, height: 20, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--color-accent)", color: "#14121f", pointerEvents: "none" }}>

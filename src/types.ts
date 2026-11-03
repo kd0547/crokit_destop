@@ -86,6 +86,10 @@ export interface FolderFile {
   favorite: boolean;
   /** left out of practice sessions; only folder listings include hidden images */
   hidden: boolean;
+  /** folder listings: the sequence this photo belongs to */
+  sequence_id: string | null;
+  /** playlist only: a sequence is one item, its photos in order (path = first frame) */
+  frames: string[];
 }
 
 export interface ImageFlags {
@@ -124,6 +128,8 @@ export type SessionState = "idle" | "observe" | "running" | "paused" | "break";
 export interface PlaylistEntry {
   path: string;
   isGif: boolean;
+  /** a saved sequence: its photos, played like a GIF as one item (path = first frame) */
+  frames?: string[];
 }
 
 export interface SessionConfig {

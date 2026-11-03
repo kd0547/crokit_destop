@@ -26,8 +26,13 @@ export function Stage() {
 
   const sessionActive = snapshot.state !== "idle";
   const currentPath = sessionActive ? snapshot.current?.path ?? null : files[ui.currentIndex]?.path ?? null;
-  // picked photos playing like a GIF (only while no session runs)
-  const sequence = sessionActive ? null : ui.sequence;
+  // photos playing like a GIF: a picked preview from the library (no session only),
+  // or a saved sequence that is the current playlist item
+  const preview = sessionActive ? null : ui.sequence;
+  const itemFrames = sessionActive ? snapshot.current?.frames : files[ui.currentIndex]?.frames;
+  const sequence = preview ?? (itemFrames && itemFrames.length > 1 ? itemFrames : null);
+  // the snapshot is replaced on every tick; compare frames by value so playback doesn't restart
+  const sequenceKey = sequence?.join("\n") ?? "";
   const currentIsGif = sequence ? true : sessionActive ? !!snapshot.current?.isGif : !!files[ui.currentIndex]?.is_gif;
   const visible = !sessionActive || snapshot.state === "paused" || ui.uiAwake;
   const low = snapshot.state === "running" && snapshot.remainingMs <= 10000;
@@ -38,7 +43,7 @@ export function Stage() {
       useUiStore.getState().resetGif();
     } else if (currentIsGif && currentPath) loadGifFrames(currentPath);
     else useUiStore.setState({ gifFrames: [] });
-  }, [currentPath, currentIsGif, sequence]);
+  }, [currentPath, currentIsGif, sequenceKey]);
 
   // GIF playback loop
   useEffect(() => {
@@ -160,7 +165,7 @@ export function Stage() {
           </div>
 
           {currentIsGif && (
-            <GifBar frameCount={ui.gifFrames.length} visible={visible} sequence={!!sequence} />
+            <GifBar frameCount={ui.gifFrames.length} visible={visible} sequence={!!sequence} closable={!!preview} />
           )}
 
           {settings && !settings.panel_open ? (
@@ -340,7 +345,7 @@ function ControlDock({ bottom }: { bottom: number }) {
   );
 }
 
-function GifBar({ frameCount, visible, sequence }: { frameCount: number; visible: boolean; sequence: boolean }) {
+function GifBar({ frameCount, visible, sequence, closable }: { frameCount: number; visible: boolean; sequence: boolean; closable: boolean }) {
   const ui = useUiStore();
   const playing = ui.gifPlaying && !ui.gifFrozen;
   const hasRange = !(ui.gifA === 0 && ui.gifB === frameCount - 1);
@@ -437,7 +442,7 @@ function GifBar({ frameCount, visible, sequence }: { frameCount: number; visible
             <i className="ph ph-push-pin" style={{ fontSize: 14 }} />
             {ui.gifFrozen ? t("gif.unfreeze") : t("gif.freeze")}
           </button>
-          {sequence && <ControlIcon icon="ph ph-x" title={t("sequence.close")} onClick={stopSequence} size={30} iconSize={15} />}
+          {closable && <ControlIcon icon="ph ph-x" title={t("sequence.close")} onClick={stopSequence} size={30} iconSize={15} />}
         </div>
       </div>
     </>

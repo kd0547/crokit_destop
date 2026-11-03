@@ -190,6 +190,24 @@ export function stopSequence(): void {
   useUiStore.getState().setSequence(null);
 }
 
+async function reloadPlaylist(): Promise<void> {
+  await useFolderStore.getState().fetchSelectionFiles(useSettingsStore.getState().settings?.folder_selection ?? []);
+  const ui = useUiStore.getState();
+  ui.setCurrentIndex(Math.max(0, Math.min(ui.currentIndex, useFolderStore.getState().files.length - 1)), true);
+}
+
+/** save photos of one folder (in this order) as a sequence: one item that plays like a GIF in sessions */
+export async function groupSequence(folderId: string, paths: string[]): Promise<void> {
+  await api.createSequence(folderId, paths);
+  await reloadPlaylist();
+}
+
+/** ungroup sequences (the photos stay, and play one by one again) */
+export async function ungroupSequences(folderId: string, sequenceIds: string[]): Promise<void> {
+  for (const id of sequenceIds) await api.deleteSequence(folderId, id);
+  await reloadPlaylist();
+}
+
 /**
  * Favorite or hide library images (all from one folder). Hidden images are left
  * out of the practice playlist (the backend filters them), so hiding reloads it.
@@ -221,7 +239,7 @@ export function openInBrowsing(index: number): void {
 }
 
 function buildPlaylist(): PlaylistEntry[] {
-  return useFolderStore.getState().files.map((f) => ({ path: f.path, isGif: f.is_gif }));
+  return useFolderStore.getState().files.map((f) => ({ path: f.path, isGif: f.is_gif, frames: f.frames.length > 1 ? f.frames : undefined }));
 }
 
 export async function startSession(): Promise<void> {

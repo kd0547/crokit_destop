@@ -73,6 +73,12 @@ export const api = {
   setImageFlags: (folderId: string, paths: string[], flags: Partial<ImageFlags>) =>
     req<ImageFlagsResult[]>(`/folders/${encodeURIComponent(folderId)}/flags`, { method: "PUT", body: JSON.stringify({ paths, ...flags }) }),
 
+  /** save photos (in order) as a sequence that plays as one item in sessions */
+  createSequence: (folderId: string, paths: string[]) =>
+    req<{ id: string; frames: string[] }>(`/folders/${encodeURIComponent(folderId)}/sequences`, { method: "POST", body: JSON.stringify({ paths }) }),
+  deleteSequence: (folderId: string, sequenceId: string) =>
+    req<{ ok: boolean }>(`/folders/${encodeURIComponent(folderId)}/sequences/${encodeURIComponent(sequenceId)}`, { method: "DELETE" }),
+
   getGifFrames: (path: string) => req<{ frames: string[] }>(`/gif/frames?path=${encodeURIComponent(path)}`),
 
   listHistory: () => req<HistoryEntry[]>("/history"),

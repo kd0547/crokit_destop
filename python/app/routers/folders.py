@@ -8,7 +8,7 @@ from typing import Iterator
 from fastapi import APIRouter, HTTPException
 
 from .. import db, image_ops, security
-from ..models import AddFolderRequest, FolderFile, FolderFilesRequest, FolderNode, FolderOut, ImageFlags, ImageFlagsUpdate
+from ..models import AddFolderRequest, FolderFile, FolderFilesRequest, FolderNode, FolderOut, ImageFlags, ImageFlagsUpdate, SequenceCreate, SequenceOut
 from ..thumbnail import delete_folder_thumbnails
 
 router = APIRouter(prefix="/folders", tags=["folders"])
@@ -106,9 +106,63 @@ def _load_flags(folder_ids: set[str]) -> dict[tuple[str, str], tuple[bool, bool]
     return {(r["folder_id"], r["rel_path"]): (bool(r["favorite"]), bool(r["hidden"])) for r in rows}
 
 
-def _folder_file(p: Path, folder_id: str, root: Path, flags: dict[tuple[str, str], tuple[bool, bool]]) -> FolderFile:
-    favorite, hidden = flags.get((folder_id, p.relative_to(root).as_posix()), (False, False))
-    return FolderFile(path=str(p), name=p.name, is_gif=image_ops.is_gif(p), folder_id=folder_id, favorite=favorite, hidden=hidden)
+def _load_sequences(folder_ids: set[str]) -> dict[tuple[str, str], tuple[str, int]]:
+    """(folder_id, rel_path) -> (sequence_id, order_index) for photos in a sequence."""
+    if not folder_ids:
+        return {}
+    conn = db.get_connection()
+    try:
+        marks = ",".join("?" * len(folder_ids))
+        rows = conn.execute(
+            f"SELECT s.folder_id, f.rel_path, f.sequence_id, f.order_index FROM sequence_frames f "
+            f"JOIN sequences s ON s.id = f.sequence_id WHERE s.folder_id IN ({marks})",
+            list(folder_ids),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {(r["folder_id"], r["rel_path"]): (r["sequence_id"], r["order_index"]) for r in rows}
+
+
+def _folder_file(
+    p: Path,
+    folder_id: str,
+    root: Path,
+    flags: dict[tuple[str, str], tuple[bool, bool]],
+    seqs: dict[tuple[str, str], tuple[str, int]] | None = None,
+) -> FolderFile:
+    key = (folder_id, p.relative_to(root).as_posix())
+    favorite, hidden = flags.get(key, (False, False))
+    seq = (seqs or {}).get(key)
+    return FolderFile(
+        path=str(p), name=p.name, is_gif=image_ops.is_gif(p), folder_id=folder_id,
+        favorite=favorite, hidden=hidden, sequence_id=seq[0] if seq else None,
+    )
+
+
+def _group_sequences(files: list[FolderFile], seqs: dict[tuple[str, str], tuple[str, int]], roots: dict[str, Path]) -> list[FolderFile]:
+    """Playlist: each sequence becomes one item at its first member's place (frames in sequence order).
+
+    Only members present in the list count (hidden ones are already gone); a
+    sequence left with fewer than 2 photos plays them as ordinary images.
+    """
+    order: dict[str, list[tuple[int, FolderFile]]] = {}
+    for f in files:
+        if f.sequence_id:
+            rel = Path(f.path).relative_to(roots[f.folder_id]).as_posix()
+            order.setdefault(f.sequence_id, []).append((seqs[(f.folder_id, rel)][1], f))
+    out: list[FolderFile] = []
+    emitted: set[str] = set()
+    for f in files:
+        members = order.get(f.sequence_id or "", [])
+        if len(members) < 2:
+            out.append(f.model_copy(update={"sequence_id": None}) if f.sequence_id else f)
+            continue
+        if f.sequence_id in emitted:
+            continue
+        emitted.add(f.sequence_id)
+        frames = [m.path for _, m in sorted(members, key=lambda x: x[0])]
+        out.append(f.model_copy(update={"path": frames[0], "name": Path(frames[0]).name, "frames": frames}))
+    return out
 
 
 def _row_to_out(row) -> FolderOut:
@@ -192,7 +246,8 @@ def list_files(folder_id: str, rel_path: str = "", recursive: bool = False):
     root = Path(row["path"]).resolve()
     target = _resolve_in_root(root, rel_path)
     flags = _load_flags({folder_id})
-    return [_folder_file(p, folder_id, root, flags) for p in _iter_images(target, recursive)]
+    seqs = _load_sequences({folder_id})
+    return [_folder_file(p, folder_id, root, flags, seqs) for p in _iter_images(target, recursive)]
 
 
 @router.post("/files", response_model=list[FolderFile])
@@ -200,6 +255,7 @@ def list_selection_files(payload: FolderFilesRequest):
     """여러 폴더 선택을 하나의 재생 목록으로 (선택 순서 → 폴더 트리 순서, 중복 제거).
 
     숨긴 이미지는 크로키 세션에서 제외하므로 목록에 넣지 않는다.
+    연속 재생 묶음은 항목 하나로 합친다 (frames에 묶음 사진들).
     """
     conn = db.get_connection()
     try:
@@ -207,7 +263,10 @@ def list_selection_files(payload: FolderFilesRequest):
     finally:
         conn.close()
 
-    flags = _load_flags({item.folder_id for item in payload.items if item.folder_id in rows})
+    folder_ids = {item.folder_id for item in payload.items if item.folder_id in rows}
+    flags = _load_flags(folder_ids)
+    seqs = _load_sequences(folder_ids)
+    roots = {fid: Path(rows[fid]["path"]).resolve() for fid in folder_ids}
     seen: set[str] = set()
     out: list[FolderFile] = []
     for item in payload.items:
@@ -221,10 +280,72 @@ def list_selection_files(payload: FolderFilesRequest):
             if key in seen:
                 continue
             seen.add(key)
-            f = _folder_file(p, item.folder_id, root, flags)
+            f = _folder_file(p, item.folder_id, root, flags, seqs)
             if not f.hidden:
                 out.append(f)
-    return out
+    return _group_sequences(out, seqs, roots)
+
+
+@router.post("/{folder_id}/sequences", response_model=SequenceOut)
+def create_sequence(folder_id: str, payload: SequenceCreate):
+    """사진들을 연속 재생 묶음으로 저장 (주어진 순서대로).
+
+    이미 다른 묶음에 있던 사진은 그 묶음에서 빠지고, 2장 미만이 된 묶음은 지운다.
+    경로가 하나라도 폴더 밖이거나 GIF·이미지가 아니면 아무것도 바꾸지 않고 404.
+    """
+    conn = db.get_connection()
+    try:
+        row = _get_row(conn, folder_id)
+        root = Path(row["path"]).resolve()
+        rel_paths: list[str] = []
+        frames: list[str] = []
+        for path in payload.paths:
+            src = security.resolve_allowed(path)
+            if not src.is_relative_to(root) or not image_ops.is_image(src) or image_ops.is_gif(src):
+                raise HTTPException(status_code=404, detail="file not found")
+            rel = src.relative_to(root).as_posix()
+            if rel not in rel_paths:
+                rel_paths.append(rel)
+                frames.append(path)
+        if len(rel_paths) < 2:
+            raise HTTPException(status_code=400, detail="sequence_too_short")
+
+        marks = ",".join("?" * len(rel_paths))
+        conn.execute(
+            f"DELETE FROM sequence_frames WHERE rel_path IN ({marks}) "
+            "AND sequence_id IN (SELECT id FROM sequences WHERE folder_id = ?)",
+            [*rel_paths, folder_id],
+        )
+        conn.execute(
+            "DELETE FROM sequences WHERE folder_id = ? AND id NOT IN "
+            "(SELECT sequence_id FROM sequence_frames GROUP BY sequence_id HAVING COUNT(*) >= 2)",
+            (folder_id,),
+        )
+        seq_id = str(uuid.uuid4())
+        conn.execute("INSERT INTO sequences (id, folder_id, created_at) VALUES (?, ?, ?)", (seq_id, folder_id, datetime.now(timezone.utc).isoformat()))
+        conn.executemany(
+            "INSERT INTO sequence_frames (sequence_id, order_index, rel_path) VALUES (?, ?, ?)",
+            [(seq_id, i, rel) for i, rel in enumerate(rel_paths)],
+        )
+        conn.commit()
+        return SequenceOut(id=seq_id, frames=frames)
+    finally:
+        conn.close()
+
+
+@router.delete("/{folder_id}/sequences/{sequence_id}")
+def delete_sequence(folder_id: str, sequence_id: str):
+    """묶음 해제 (사진은 그대로)."""
+    conn = db.get_connection()
+    try:
+        _get_row(conn, folder_id)
+        deleted = conn.execute("DELETE FROM sequences WHERE id = ? AND folder_id = ?", (sequence_id, folder_id)).rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="sequence not found")
+    return {"ok": True}
 
 
 @router.put("/{folder_id}/flags", response_model=list[ImageFlags])

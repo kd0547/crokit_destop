@@ -155,6 +155,21 @@ def init_db() -> None:
                 PRIMARY KEY (folder_id, rel_path)
             );
 
+            -- "sequences": still photos grouped in the library and played one after
+            -- another like a GIF; a practice session shows a sequence as one item.
+            -- rel_path is relative to the registered folder (posix), like image_flags.
+            CREATE TABLE IF NOT EXISTS sequences (
+                id TEXT PRIMARY KEY,
+                folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sequence_frames (
+                sequence_id TEXT NOT NULL REFERENCES sequences(id) ON DELETE CASCADE,
+                order_index INTEGER NOT NULL,
+                rel_path TEXT NOT NULL,
+                PRIMARY KEY (sequence_id, order_index)
+            );
+
             -- images practiced in a history session, in display order. folder_id has
             -- no FK on purpose: history outlives a removed folder. thumb_file is
             -- relative to HISTORY_THUMBNAIL_DIR (<session_id>/<order_index>.jpg)
