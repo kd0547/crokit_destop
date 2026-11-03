@@ -1,7 +1,7 @@
 {
   "name": "crokit-desktop",
   "productName": "crokit",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "크로키 연습용 레퍼런스 뷰어 (Electron + React + Python)",
   "main": "dist-electron/main.js",
   "private": true,
