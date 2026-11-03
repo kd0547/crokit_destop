@@ -121,6 +121,8 @@ export const ja: Messages = {
   "library.unhiddenNotice": "再びクロッキーに含まれます",
   "library.pickedCount": (n) => `${n}枚選択中`,
   "library.bulkHide": "非表示",
+  "library.bulkUnfavorite": "解除",
+  "library.bulkUnhide": "解除",
   "library.selectAll": "すべて選択",
   "library.multiSelectHint": "Ctrl・Shift+クリックで複数選択",
   "library.trayHint": "フォルダカードのチェックボックスで練習するフォルダを選んでください",

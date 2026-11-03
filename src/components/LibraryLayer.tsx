@@ -586,31 +586,47 @@ function DirectImages({
         {t("library.directImages", node.count, hasKids)}
       </SectionTitle>
       {picked.size > 0 ? (
+        // compact toolbar, only as wide as its buttons: count | favorite | hide | select
         <div
           style={{
             position: "sticky",
-            top: -18,
+            top: -10,
             zIndex: 2,
+            width: "fit-content",
+            maxWidth: "100%",
             display: "flex",
-            flexWrap: "wrap",
             alignItems: "center",
-            gap: 4,
+            gap: 2,
             margin: "0 0 10px",
-            padding: "6px 6px 6px 12px",
-            borderRadius: "var(--radius-md)",
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-accent-700)",
+            padding: 3,
+            borderRadius: 10,
+            background: "rgba(19,20,28,.94)",
+            border: "1px solid var(--color-border-3)",
+            boxShadow: "0 8px 24px rgba(0,0,0,.45)",
+            backdropFilter: "blur(8px)",
             fontSize: 12,
           }}
         >
-          <span style={{ fontWeight: 500, color: "var(--color-accent-200)", marginRight: 6, fontVariantNumeric: "tabular-nums" }}>{t("library.pickedCount", picked.size)}</span>
-          <BulkButton icon="ph-fill ph-star" disabled={busy} onClick={() => apply(pickedFiles, { favorite: true })}>{t("library.favorite")}</BulkButton>
-          <BulkButton icon="ph ph-star" disabled={busy} onClick={() => apply(pickedFiles, { favorite: false })}>{t("library.unfavorite")}</BulkButton>
-          <BulkButton icon="ph-fill ph-eye-slash" disabled={busy} onClick={() => apply(pickedFiles, { hidden: true })}>{t("library.bulkHide")}</BulkButton>
-          <BulkButton icon="ph ph-eye" disabled={busy} onClick={() => apply(pickedFiles, { hidden: false })}>{t("library.unhide")}</BulkButton>
-          <span style={{ flex: 1 }} />
-          <BulkButton icon="ph ph-checks" disabled={busy || picked.size === list.length} onClick={() => setPicked(new Set(list.map((f) => f.path)))}>{t("library.selectAll")}</BulkButton>
-          <BulkButton icon="ph ph-x" onClick={() => setPicked(new Set())}>{t("library.deselect")}</BulkButton>
+          <span style={{ padding: "0 10px 0 8px", fontWeight: 500, color: "var(--color-accent-200)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+            {t("library.pickedCount", picked.size)}
+          </span>
+          <BarDivider />
+          <BulkButton icon="ph-fill ph-star" iconColor="#f2c94c" disabled={busy} title={t("library.favorite")} onClick={() => apply(pickedFiles, { favorite: true })}>
+            {t("library.favorite")}
+          </BulkButton>
+          <BulkButton icon="ph ph-star" disabled={busy} title={t("library.unfavorite")} onClick={() => apply(pickedFiles, { favorite: false })}>
+            {t("library.bulkUnfavorite")}
+          </BulkButton>
+          <BarDivider />
+          <BulkButton icon="ph-fill ph-eye-slash" disabled={busy} title={t("library.hide")} onClick={() => apply(pickedFiles, { hidden: true })}>
+            {t("library.bulkHide")}
+          </BulkButton>
+          <BulkButton icon="ph ph-eye" disabled={busy} title={t("library.unhide")} onClick={() => apply(pickedFiles, { hidden: false })}>
+            {t("library.bulkUnhide")}
+          </BulkButton>
+          <BarDivider />
+          <BulkButton icon="ph ph-checks" disabled={busy || picked.size === list.length} title={t("library.selectAll")} onClick={() => setPicked(new Set(list.map((f) => f.path)))} />
+          <BulkButton icon="ph ph-x" title={`${t("library.deselect")} (Esc)`} onClick={() => setPicked(new Set())} />
         </div>
       ) : (
         list.length > 1 && <div style={{ margin: "-4px 0 10px", fontSize: 11, color: "var(--color-neutral-700)" }}>{t("library.multiSelectHint")}</div>
@@ -686,13 +702,37 @@ function DirectImages({
   );
 }
 
-function BulkButton({ icon, disabled, onClick, children }: { icon: string; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
+function BulkButton({
+  icon,
+  iconColor,
+  title,
+  disabled,
+  onClick,
+  children,
+}: {
+  icon: string;
+  iconColor?: string;
+  title: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children?: React.ReactNode;
+}) {
   return (
-    <button className="btn btn-ghost" disabled={disabled} onClick={onClick} style={{ flex: "none", height: 28, padding: "0 8px", fontSize: 12, gap: 5 }}>
-      <i className={icon} style={{ fontSize: 13 }} />
+    <button
+      className="btn btn-ghost"
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      style={{ flex: "none", height: 28, padding: children ? "0 9px" : 0, width: children ? undefined : 28, borderRadius: 7, fontSize: 12, gap: 5, whiteSpace: "nowrap" }}
+    >
+      <i className={icon} style={{ fontSize: 13, color: iconColor }} />
       {children}
     </button>
   );
+}
+
+function BarDivider() {
+  return <span style={{ flex: "none", width: 1, height: 16, margin: "0 3px", background: "var(--color-border-3)" }} />;
 }
 
 /** small corner toggle on an image tile: shown on hover, and always while on */

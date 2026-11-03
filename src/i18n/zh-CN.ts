@@ -121,6 +121,8 @@ export const zhCN: Messages = {
   "library.unhiddenNotice": "此图片将重新出现在练习中",
   "library.pickedCount": (n) => `已选择 ${n} 张`,
   "library.bulkHide": "隐藏",
+  "library.bulkUnfavorite": "取消",
+  "library.bulkUnhide": "取消",
   "library.selectAll": "全选",
   "library.multiSelectHint": "Ctrl/Shift+点击可多选",
   "library.trayHint": "用文件夹卡片上的复选框选择要练习的文件夹",

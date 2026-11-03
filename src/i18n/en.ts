@@ -124,6 +124,8 @@ export const en: Messages = {
   "library.unhiddenNotice": "This photo is back in sessions",
   "library.pickedCount": (n) => `${n} selected`,
   "library.bulkHide": "Hide",
+  "library.bulkUnfavorite": "Remove",
+  "library.bulkUnhide": "Show",
   "library.selectAll": "Select all",
   "library.multiSelectHint": "Ctrl/Shift+click to select several photos",
   "library.trayHint": "Use the checkboxes on folder cards to choose what to practice",

@@ -131,6 +131,8 @@ export const ko = {
   "library.unhiddenNotice": "다시 크로키에 포함돼요",
   "library.pickedCount": (n: number) => `${n}장 선택됨`,
   "library.bulkHide": "숨기기",
+  "library.bulkUnfavorite": "해제",
+  "library.bulkUnhide": "해제",
   "library.selectAll": "전체 선택",
   "library.multiSelectHint": "Ctrl·Shift+클릭으로 여러 장 선택",
   "library.trayHint": "폴더 카드의 체크박스로 연습할 폴더를 고르세요",
