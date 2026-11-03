@@ -44,6 +44,8 @@ interface UiStoreState {
   gifA: number;
   gifB: number;
   gifFrozen: boolean;
+  /** photos picked in the library, played one after another in the GIF player (null = off) */
+  sequence: string[] | null;
 
   setMenuOpen: (k: string | null) => void;
   setSection: (s: Section) => void;
@@ -67,6 +69,7 @@ interface UiStoreState {
   setGifSpeed: (v: number) => void;
   setGifRange: (a: number, b: number) => void;
   setGifFrozen: (v: boolean) => void;
+  setSequence: (paths: string[] | null) => void;
 }
 
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -100,6 +103,7 @@ export const useUiStore = create<UiStoreState>((set) => ({
   gifA: 0,
   gifB: 0,
   gifFrozen: false,
+  sequence: null,
 
   setMenuOpen: (k) => set({ menuOpen: k }),
   setSection: (s) => set((st) => ({ section: s, historyView: s === "history" ? st.historyView : null })),
@@ -127,4 +131,5 @@ export const useUiStore = create<UiStoreState>((set) => ({
   setGifSpeed: (v) => set({ gifSpeed: v }),
   setGifRange: (a, b) => set({ gifA: a, gifB: b }),
   setGifFrozen: (v) => set({ gifFrozen: v }),
+  setSequence: (paths) => set({ sequence: paths }),
 }));

@@ -1,11 +1,23 @@
-import type { CustomImage, FolderFile, FolderInfo, FolderSelectionItem, HistoryEntry, Settings } from "@/types";
+import type { CustomImage, FolderFile, FolderInfo, FolderSelectionItem, HistoryEntry, ImageFlags, ImageFlagsResult, Settings } from "@/types";
 
 const base = () => window.crokit.apiBase;
 
+/**
+ * Adds the per-launch token as ?t= for URLs loaded without fetch headers
+ * (<img src>, WebSocket). See python/app/security.py.
+ */
+export function withToken(url: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}t=${encodeURIComponent(window.crokit.apiToken)}`;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${base()}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Crokit-Token": window.crokit.apiToken,
+      ...(init?.headers as Record<string, string> | undefined),
+    },
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -35,15 +47,15 @@ function parseDetail(body: string): string | null {
 }
 
 export function fileUrl(absPath: string): string {
-  return `${base()}/files?path=${encodeURIComponent(absPath)}`;
+  return withToken(`${base()}/files?path=${encodeURIComponent(absPath)}`);
 }
 
 export function thumbUrl(folderId: string, absPath: string): string {
-  return `${base()}/thumbnail/file?folder_id=${encodeURIComponent(folderId)}&path=${encodeURIComponent(absPath)}`;
+  return withToken(`${base()}/thumbnail/file?folder_id=${encodeURIComponent(folderId)}&path=${encodeURIComponent(absPath)}`);
 }
 
 export function practiceThumbUrl(sessionId: string, orderIndex: number): string {
-  return `${base()}/history/${encodeURIComponent(sessionId)}/images/${orderIndex}/thumbnail`;
+  return withToken(`${base()}/history/${encodeURIComponent(sessionId)}/images/${orderIndex}/thumbnail`);
 }
 
 export const api = {
@@ -57,13 +69,22 @@ export const api = {
   listFolderFiles: (id: string, relPath = "") => req<FolderFile[]>(`/folders/${id}/files?rel_path=${encodeURIComponent(relPath)}`),
   /** playlist for a multi-folder selection */
   listSelectionFiles: (items: FolderSelectionItem[]) => req<FolderFile[]>("/folders/files", { method: "POST", body: JSON.stringify({ items }) }),
+  /** favorite / hidden marks for images in one folder; fields left out stay as they are */
+  setImageFlags: (folderId: string, paths: string[], flags: Partial<ImageFlags>) =>
+    req<ImageFlagsResult[]>(`/folders/${encodeURIComponent(folderId)}/flags`, { method: "PUT", body: JSON.stringify({ paths, ...flags }) }),
+
+  /** save photos (in order) as a sequence that plays as one item in sessions */
+  createSequence: (folderId: string, paths: string[]) =>
+    req<{ id: string; frames: string[] }>(`/folders/${encodeURIComponent(folderId)}/sequences`, { method: "POST", body: JSON.stringify({ paths }) }),
+  deleteSequence: (folderId: string, sequenceId: string) =>
+    req<{ ok: boolean }>(`/folders/${encodeURIComponent(folderId)}/sequences/${encodeURIComponent(sequenceId)}`, { method: "DELETE" }),
 
   createCustomFolder: (name?: string) => req<FolderInfo>("/custom/folders", { method: "POST", body: JSON.stringify({ name }) }),
   renameCustomFolder: (id: string, name: string) => req<FolderInfo>(`/custom/folders/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   /** copy a dropped image into a custom folder (raw body upload); no folderId = the first custom folder, created if none */
   addCustomImage: async (file: File, folderId?: string): Promise<CustomImage> => {
     const path = `/custom/images?filename=${encodeURIComponent(file.name || "image")}${folderId ? `&folder_id=${encodeURIComponent(folderId)}` : ""}`;
-    const res = await fetch(`${base()}${path}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+    const res = await fetch(`${base()}${path}`, { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-Crokit-Token": window.crokit.apiToken }, body: file });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new ApiError(res.status, `POST ${path} failed: ${res.status} ${body}`, parseDetail(body));

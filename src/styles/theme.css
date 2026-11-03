@@ -38,3 +38,21 @@
 
   color-scheme: dark;
 }
+
+/*
+ * CJK fallback per UI language (src/i18n sets <html lang>). Japanese and
+ * Chinese draw the same Han characters differently, so each language names
+ * its own Windows UI font after Inter (which only covers Latin).
+ */
+:root:lang(ko) {
+  --font-heading: "Inter", "Malgun Gothic", system-ui, sans-serif;
+  --font-body: "Inter", "Malgun Gothic", system-ui, sans-serif;
+}
+:root:lang(ja) {
+  --font-heading: "Inter", "Yu Gothic UI", "Meiryo UI", "Meiryo", system-ui, sans-serif;
+  --font-body: "Inter", "Yu Gothic UI", "Meiryo UI", "Meiryo", system-ui, sans-serif;
+}
+:root:lang(zh-CN) {
+  --font-heading: "Inter", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-body: "Inter", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+}

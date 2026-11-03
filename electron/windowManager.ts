@@ -20,6 +20,10 @@ export interface MainWindowOptions {
   x?: number | null;
   y?: number | null;
   alwaysOnTop?: boolean;
+  /** backend address, handed to the preload (see electron/preload.ts) */
+  apiBase: string;
+  /** per-launch backend token, handed to the preload the same way */
+  apiToken: string;
 }
 
 export function createMainWindow(preload: string, opts: MainWindowOptions): BrowserWindow {
@@ -36,6 +40,7 @@ export function createMainWindow(preload: string, opts: MainWindowOptions): Brow
       preload,
       contextIsolation: true,
       nodeIntegration: false,
+      additionalArguments: [`--crokit-api-base=${opts.apiBase}`, `--crokit-api-token=${opts.apiToken}`],
     },
   });
   // not via the constructor option: that one always uses the "floating" level

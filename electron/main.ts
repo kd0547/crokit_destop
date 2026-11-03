@@ -1,9 +1,10 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, nativeImage, shell } from "electron";
 import { access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { API_BASE, startPythonBackend, stopPythonBackend } from "./pythonBridge";
+import { apiHeaders, getApiBase, getApiToken, startPythonBackend, stopPythonBackend } from "./pythonBridge";
 import { createMainWindow, setWindowAlwaysOnTop } from "./windowManager";
+import { mainT } from "./i18n";
 import { SessionManager, type PlaylistEntry, type SessionConfig } from "./session";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,14 +24,15 @@ interface Settings {
 }
 
 async function fetchSettings(): Promise<Settings> {
-  const res = await fetch(`${API_BASE}/settings`);
+  const res = await fetch(`${getApiBase()}/settings`, { headers: apiHeaders() });
+  if (!res.ok) throw new Error(`GET /settings failed: ${res.status}`);
   return res.json();
 }
 
 async function patchSettings(fields: Record<string, unknown>): Promise<void> {
-  await fetch(`${API_BASE}/settings`, {
+  await fetch(`${getApiBase()}/settings`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: apiHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(fields),
   }).catch((err) => console.error("Failed to save settings", err));
 }
@@ -75,18 +77,25 @@ function registerIpcHandlers() {
   });
 
   // renderer decodes the image and sends a PNG data URL (see src/lib/clipboard.ts)
-  ipcMain.handle("clipboard:writeImage", (_event, png: string) => {
-    if (typeof png !== "string" || !png.startsWith("data:image/png;base64,")) {
-      throw new Error("invalid PNG data URL");
-    }
-    const image = nativeImage.createFromDataURL(png);
-    if (image.isEmpty()) throw new Error("invalid image data");
-    clipboard.writeImage(image);
+  // (Electron 44 removed clipboard.writeImage; write() takes W3C-style ClipboardItems)
+  ipcMain.handle("clipboard:writeImage", async (_event, png: string) => {
+    const prefix = "data:image/png;base64,";
+    if (typeof png !== "string" || !png.startsWith(prefix)) throw new Error("invalid PNG data URL");
+    const bytes = Buffer.from(png.slice(prefix.length), "base64");
+    if (nativeImage.createFromBuffer(bytes).isEmpty()) throw new Error("invalid image data");
+    await clipboard.write([new ClipboardItem({ "image/png": new Blob([bytes], { type: "image/png" }) })]);
   });
 
+  // Since Electron 43 the dialog opens in Downloads unless told otherwise, so
+  // start from the last folder picked (or Pictures, where references usually live)
+  let lastFolderDialogPath: string | undefined;
   ipcMain.handle("dialog:selectFolder", async () => {
-    const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
+    const result = await dialog.showOpenDialog({
+      properties: ["openDirectory"],
+      defaultPath: lastFolderDialogPath ?? app.getPath("pictures"),
+    });
     if (result.canceled || result.filePaths.length === 0) return null;
+    lastFolderDialogPath = result.filePaths[0];
     return result.filePaths[0];
   });
 
@@ -105,9 +114,9 @@ function registerIpcHandlers() {
   session.on("update", broadcastSessionUpdate);
   session.on("finished", (result) => {
     if (!result || result.imagesDrawn <= 0) return;
-    fetch(`${API_BASE}/history`, {
+    fetch(`${getApiBase()}/history`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         folder_id: result.folderId,
         folder_name: result.folderName,
@@ -122,7 +131,7 @@ function registerIpcHandlers() {
   });
 }
 
-app.whenReady().then(async () => {
+async function onReady() {
   const dataDir = app.getPath("userData");
 
   try {
@@ -130,8 +139,8 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error(err);
     dialog.showErrorBox(
-      "crokit - Python 백엔드 시작 실패",
-      "Python 백엔드를 시작하지 못했습니다. `npm run python:setup`을 실행해 가상환경을 준비했는지 확인해 주세요.\n\n" + String(err)
+      mainT("backendFailedTitle"),
+      mainT(app.isPackaged ? "backendFailedPackaged" : "backendFailedDev") + "\n\n" + String(err)
     );
   }
 
@@ -151,6 +160,8 @@ app.whenReady().then(async () => {
     x: settings.window_x,
     y: settings.window_y,
     alwaysOnTop: settings.always_on_top,
+    apiBase: getApiBase(),
+    apiToken: getApiToken(),
   });
 
   let resizeMoveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -172,7 +183,20 @@ app.whenReady().then(async () => {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
-});
+}
+
+// Only one crokit at a time: a second launch just brings the existing window forward.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+  app.whenReady().then(onReady);
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

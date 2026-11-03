@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { hexToRgb, hsvToRgb, rgbToHex, rgbToHsv } from "@/lib/color";
+import { useT } from "@/i18n";
 
 const SV_W = 196;
 const SV_H = 130;
@@ -50,6 +51,7 @@ export function ColorPicker({
   onDivisionsPreview: (n: number) => void;
   onDivisionsCommit: (n: number) => void;
 }) {
+  const t = useT();
   const initHsv = rgbToHsv(...hexToRgb(hex));
   const [h, setH] = useState(initHsv[0]);
   const [s, setS] = useState(initHsv[1]);
@@ -145,12 +147,12 @@ export function ColorPicker({
     <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 10 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, font: "500 12px var(--font-body)", color: "var(--color-accent-200)" }}>
         <i className="ph ph-sliders-horizontal" style={{ fontSize: 14 }} />
-        그리드 사용자 설정
+        {t("grid.custom")}
       </div>
 
       {/* division count */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 11, color: "var(--color-neutral-600)", flex: "none", width: 44 }}>분할 수</span>
+        <span style={{ fontSize: 11, color: "var(--color-neutral-600)", flex: "none", minWidth: 44 }}>{t("grid.divisions")}</span>
         <input
           type="range"
           min={2}
@@ -169,7 +171,7 @@ export function ColorPicker({
 
       <div style={{ display: "flex", alignItems: "center", gap: 6, font: "500 12px var(--font-body)", color: "var(--color-accent-200)" }}>
         <i className="ph ph-palette" style={{ fontSize: 14 }} />
-        그리드 색상
+        {t("grid.color")}
       </div>
 
       {/* saturation / value square */}

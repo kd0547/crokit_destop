@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useSessionStore } from "@/state/sessionStore";
 import { useFolderStore } from "@/state/folderStore";
 import { useUiStore } from "@/state/uiStore";
-import { browseStep, extendTimer, gifStep, gifTogglePlay, nextPhoto, prevPhoto, resetTimer, startSession, stopSession, togglePanel, togglePause, wake } from "@/state/actions";
+import { browseStep, extendTimer, gifStep, gifTogglePlay, nextPhoto, prevPhoto, resetTimer, startSession, stopSequence, stopSession, togglePanel, togglePause, wake } from "@/state/actions";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -11,15 +11,19 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 function currentIsGif(): boolean {
   const snapshot = useSessionStore.getState().snapshot;
-  if (snapshot.state !== "idle") return !!snapshot.current?.isGif;
+  // sequences (picked preview or saved) play in the GIF player too
+  if (snapshot.state !== "idle") return !!snapshot.current?.isGif || (snapshot.current?.frames?.length ?? 0) > 1;
+  if (useUiStore.getState().sequence) return true;
   const { files } = useFolderStore.getState();
   const { currentIndex } = useUiStore.getState();
-  return !!files[currentIndex]?.is_gif;
+  const f = files[currentIndex];
+  return !!f?.is_gif || (f?.frames.length ?? 0) > 1;
 }
 
 export function useKeyboardShortcuts() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (document.querySelector("dialog[open]")) return;
       if (isTypingTarget(e.target)) return;
 
       const snapshot = useSessionStore.getState().snapshot;
@@ -61,6 +65,8 @@ export function useKeyboardShortcuts() {
         useUiStore.getState().setMenuOpen(null);
       } else if (e.key === "Escape" && running) {
         stopSession();
+      } else if (e.key === "Escape" && ui.sequence) {
+        stopSequence();
       }
       wake();
     };

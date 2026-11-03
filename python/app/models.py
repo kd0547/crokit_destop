@@ -1,6 +1,9 @@
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+# UI language setting; the strings themselves live in the frontend (src/i18n)
+Language = Literal["system", "ko", "en", "ja", "zh-CN"]
 
 
 class DurationPreset(BaseModel):
@@ -56,6 +59,7 @@ class SettingsOut(BaseModel):
     current_folder_id: Optional[str]
     folder_selection: list[FolderSelectionItem] = []
     flip_hotkey: Optional[Hotkey] = None
+    language: Language = "system"
 
 
 class SettingsUpdate(BaseModel):
@@ -87,6 +91,7 @@ class SettingsUpdate(BaseModel):
     current_folder_id: Optional[str] = None
     folder_selection: Optional[list[FolderSelectionItem]] = None
     flip_hotkey: Optional[Hotkey] = None
+    language: Optional[Language] = None
 
 
 class FolderNode(BaseModel):
@@ -122,6 +127,32 @@ class FolderFile(BaseModel):
     name: str
     is_gif: bool
     folder_id: Optional[str] = None  # 이 파일이 속한 등록 폴더 (썸네일 조회용)
+    favorite: bool = False
+    hidden: bool = False             # 크로키 세션에서 제외 (재생 목록에는 아예 빠짐)
+    sequence_id: Optional[str] = None  # 연속 재생 묶음에 속한 사진이면 그 묶음
+    # 재생 목록에서만: 묶음 하나가 항목 하나가 되고, frames에 묶음 사진들이 순서대로 들어감 (path = 첫 장)
+    frames: list[str] = []
+
+
+class SequenceCreate(BaseModel):
+    paths: list[str] = Field(min_length=2)  # 순서대로, 같은 등록 폴더 안의 사진 (GIF 제외)
+
+
+class SequenceOut(BaseModel):
+    id: str
+    frames: list[str]
+
+
+class ImageFlagsUpdate(BaseModel):
+    paths: list[str] = Field(min_length=1)  # 이미지 절대경로들 (모두 등록 폴더 안이어야 함)
+    favorite: Optional[bool] = None
+    hidden: Optional[bool] = None
+
+
+class ImageFlags(BaseModel):
+    path: str
+    favorite: bool
+    hidden: bool
 
 
 class FolderFilesRequest(BaseModel):

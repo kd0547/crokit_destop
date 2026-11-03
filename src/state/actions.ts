@@ -1,6 +1,7 @@
 import { api, ApiError } from "@/api/client";
+import { t, type LanguageSetting, type MessageKey } from "@/i18n";
 import { compressSelection, expandSelection, findNode, nodeKey, selectedTotals, selectionLabel, setSubtree, stateOf } from "@/lib/folderTree";
-import type { FolderInfo, FolderSelectionItem, Hotkey, PlaylistEntry, SessionConfig } from "@/types";
+import type { FolderFile, FolderInfo, FolderSelectionItem, Hotkey, ImageFlags, ImageFlagsResult, PlaylistEntry, SessionConfig } from "@/types";
 import { useFolderStore } from "./folderStore";
 import { useSettingsStore } from "./settingsStore";
 import { useSessionStore } from "./sessionStore";
@@ -43,18 +44,18 @@ export async function addFolderPath(path: string): Promise<void> {
   try {
     folder = await useFolderStore.getState().addFolder(path);
   } catch (err) {
-    useUiStore.getState().showNotice(err instanceof ApiError && err.detail ? err.detail : "폴더를 등록하지 못했습니다");
+    useUiStore.getState().showNotice(apiErrorMessage(err) ?? t("folders.addFailed"));
     return;
   }
   // first folder: select it right away so the start button works without a detour
   if (selectionItems().length === 0) await saveSelection([{ folder_id: folder.id, rel_path: "", recursive: true }]);
   useUiStore.getState().setLibraryPath({ folderId: folder.id, relPath: "" });
   useUiStore.getState().setBrowsing(true);
-  useUiStore.getState().showNotice(`'${folder.name}' 폴더를 등록했습니다 · ${folder.count}장`);
+  useUiStore.getState().showNotice(t("folders.added", folder.name, folder.count));
 }
 
 function errorText(err: unknown, fallback: string): string {
-  return err instanceof ApiError && err.detail ? err.detail : fallback;
+  return apiErrorMessage(err) ?? (err instanceof ApiError && err.detail ? err.detail : fallback);
 }
 
 /** new empty custom folder ("커스텀", "커스텀 2", ...); returns its id */
@@ -64,7 +65,7 @@ export async function createCustomFolder(): Promise<string | null> {
     await useFolderStore.getState().fetchFolders();
     return folder.id;
   } catch (err) {
-    useUiStore.getState().showNotice(errorText(err, "폴더를 만들지 못했습니다"));
+    useUiStore.getState().showNotice(errorText(err, t("custom.createFailed")));
     return null;
   }
 }
@@ -77,7 +78,7 @@ export async function renameCustomFolder(id: string, name: string): Promise<void
     await api.renameCustomFolder(id, name);
     await useFolderStore.getState().fetchFolders();
   } catch (err) {
-    useUiStore.getState().showNotice(errorText(err, "이름을 바꾸지 못했습니다"));
+    useUiStore.getState().showNotice(errorText(err, t("custom.renameFailed")));
   }
 }
 
@@ -94,11 +95,11 @@ export async function addCustomImages(files: File[], targetId?: string): Promise
       if (result.duplicate) duplicates++;
       else saved++;
     } catch (err) {
-      lastError = errorText(err, "그림을 저장하지 못했습니다");
+      lastError = errorText(err, t("custom.saveFailed"));
     }
   }
   if (!folderId) {
-    useUiStore.getState().showNotice(lastError ?? "그림을 저장하지 못했습니다");
+    useUiStore.getState().showNotice(lastError ?? t("custom.saveFailed"));
     return;
   }
 
@@ -108,24 +109,19 @@ export async function addCustomImages(files: File[], targetId?: string): Promise
   ui.setLibraryPath({ folderId, relPath: "" });
   ui.setBrowsing(true);
 
-  const name = useFolderStore.getState().folders.find((f) => f.id === folderId)?.name ?? "커스텀";
-  const parts = [saved > 0 ? `'${name}' 폴더에 ${saved}장 저장했습니다` : `이미 '${name}' 폴더에 있는 그림입니다`];
-  if (saved > 0 && duplicates > 0) parts.push(`${duplicates}장은 이미 있음`);
+  const name = useFolderStore.getState().folders.find((f) => f.id === folderId)?.name ?? t("custom.defaultName");
+  const parts = [saved > 0 ? t("custom.saved", name, saved) : t("custom.alreadyThere", name)];
+  if (saved > 0 && duplicates > 0) parts.push(t("custom.duplicates", duplicates));
   const failed = files.length - saved - duplicates;
-  if (failed > 0) parts.push(`${failed}장 실패`);
+  if (failed > 0) parts.push(t("custom.failedCount", failed));
   ui.showNotice(parts.join(" · "));
 }
 
+/** Remove a registration after the library's confirmation dialog is accepted. */
 export async function removeFolder(id: string): Promise<void> {
   const folderStore = useFolderStore.getState();
   const target = folderStore.folders.find((f) => f.id === id);
   if (!target) return;
-  const question =
-    target.kind === "custom"
-      ? `커스텀 폴더 '${target.name}'를 삭제할까요?\n저장된 그림 ${target.count}장도 함께 삭제되며 되돌릴 수 없습니다.`
-      : `'${target.name}' 폴더를 목록에서 삭제할까요?\n(실제 파일은 삭제되지 않습니다)`;
-  if (!window.confirm(question)) return;
-
   await folderStore.removeFolder(id);
   const ui = useUiStore.getState();
   if (ui.libraryPath?.folderId === id) ui.setLibraryPath(null);
@@ -237,16 +233,75 @@ export function browseStep(delta: number): void {
   const count = useFolderStore.getState().files.length;
   if (count === 0) return;
   const ui = useUiStore.getState();
+  ui.setSequence(null);
   ui.setCurrentIndex((ui.currentIndex + delta + count) % count, true);
 }
 
+/**
+ * Play photos picked in the library one after another, like a GIF: they become
+ * the frames of the GIF player (scrubber, speed, A/B loop, freeze all apply).
+ */
+export function playSequence(paths: string[]): void {
+  if (paths.length < 2) return;
+  const ui = useUiStore.getState();
+  ui.setSequence(paths);
+  ui.setBrowsing(false);
+}
+
+export function stopSequence(): void {
+  useUiStore.getState().setSequence(null);
+}
+
+async function reloadPlaylist(): Promise<void> {
+  await useFolderStore.getState().fetchSelectionFiles(useSettingsStore.getState().settings?.folder_selection ?? []);
+  const ui = useUiStore.getState();
+  ui.setCurrentIndex(Math.max(0, Math.min(ui.currentIndex, useFolderStore.getState().files.length - 1)), true);
+}
+
+/** save photos of one folder (in this order) as a sequence: one item that plays like a GIF in sessions */
+export async function groupSequence(folderId: string, paths: string[]): Promise<void> {
+  await api.createSequence(folderId, paths);
+  await reloadPlaylist();
+}
+
+/** ungroup sequences (the photos stay, and play one by one again) */
+export async function ungroupSequences(folderId: string, sequenceIds: string[]): Promise<void> {
+  for (const id of sequenceIds) await api.deleteSequence(folderId, id);
+  await reloadPlaylist();
+}
+
+/**
+ * Favorite or hide library images (all from one folder). Hidden images are left
+ * out of the practice playlist (the backend filters them), so hiding reloads it.
+ */
+export async function setImageFlags(targets: FolderFile[], fields: Partial<ImageFlags>): Promise<ImageFlagsResult[]> {
+  const folderId = targets[0]?.folder_id;
+  if (!folderId) return [];
+  const results = await api.setImageFlags(folderId, targets.map((f) => f.path), fields);
+  const store = useFolderStore.getState();
+  if (fields.hidden !== undefined) {
+    // keep showing the same photo while browsing, if it's still in the playlist
+    const ui = useUiStore.getState();
+    const shown = store.files[ui.currentIndex]?.path;
+    await store.fetchSelectionFiles(useSettingsStore.getState().settings?.folder_selection ?? []);
+    const files = useFolderStore.getState().files;
+    const index = files.findIndex((f) => f.path === shown);
+    ui.setCurrentIndex(index >= 0 ? index : Math.max(0, Math.min(ui.currentIndex, files.length - 1)), true);
+  } else {
+    const byPath = new Map(results.map((r) => [r.path, r]));
+    useFolderStore.setState({ files: store.files.map((f) => (byPath.has(f.path) ? { ...f, ...byPath.get(f.path) } : f)) });
+  }
+  return results;
+}
+
 export function openInBrowsing(index: number): void {
+  useUiStore.getState().setSequence(null);
   useUiStore.getState().setCurrentIndex(index, true);
   useUiStore.getState().setBrowsing(false);
 }
 
 function buildPlaylist(): PlaylistEntry[] {
-  return useFolderStore.getState().files.map((f) => ({ path: f.path, isGif: f.is_gif }));
+  return useFolderStore.getState().files.map((f) => ({ path: f.path, isGif: f.is_gif, frames: f.frames.length > 1 ? f.frames : undefined }));
 }
 
 export async function startSession(): Promise<void> {
@@ -254,6 +309,7 @@ export async function startSession(): Promise<void> {
   const files = useFolderStore.getState().files;
   const folders = useFolderStore.getState().folders;
   if (!settings || files.length === 0) return;
+  stopSequence();
   const items = settings.folder_selection;
   const rootIds = new Set(items.map((i) => i.folder_id));
   const ui = useUiStore.getState();
@@ -416,6 +472,23 @@ export async function toggleSetting(key: BoolSettingKey): Promise<void> {
 
 export async function setFlipHotkey(hotkey: Hotkey | null): Promise<void> {
   await useSettingsStore.getState().updateSettings({ flip_hotkey: hotkey });
+}
+
+export async function setLanguage(language: LanguageSetting): Promise<void> {
+  await useSettingsStore.getState().updateSettings({ language });
+}
+
+// backend error codes the UI knows how to show (python/app routers send them as `detail`)
+const ERROR_KEYS: Record<string, MessageKey & `error.${string}`> = {
+  folder_path_not_found: "error.folder_path_not_found",
+  folder_already_registered: "error.folder_already_registered",
+  path_outside_folder: "error.path_outside_folder",
+  custom_folder_not_linkable: "error.custom_folder_not_linkable",
+};
+
+function apiErrorMessage(err: unknown): string | null {
+  const key = err instanceof ApiError && err.detail ? ERROR_KEYS[err.detail] : undefined;
+  return key ? (t as (k: MessageKey) => string)(key) : null;
 }
 
 export function previewGridStyle(hex: string, opacity: number): void {

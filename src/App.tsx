@@ -11,13 +11,19 @@ import { addCustomImages, addFolderPath, initApp } from "./state/actions";
 import { useFolderStore } from "./state/folderStore";
 import { useSessionStore } from "./state/sessionStore";
 import { useUiStore } from "./state/uiStore";
+import { useSettingsStore } from "./state/settingsStore";
+import { applyLanguage, useT } from "./i18n";
 
 function Shell() {
   const subscribeSession = useSessionStore((s) => s.subscribe);
+  const language = useSettingsStore((s) => s.settings?.language);
   useKeyboardShortcuts();
   useMouseNavigation();
   useFlipHotkey();
   useWindowTitle();
+
+  // until settings load (and for "system") this follows the OS language
+  useEffect(() => applyLanguage(language), [language]);
 
   useEffect(() => {
     initApp();
@@ -85,6 +91,7 @@ function FolderDropZone() {
   const [targetId, setTargetId] = useState<string | null>(null);
   const running = useSessionStore((s) => s.snapshot.state !== "idle");
   const folders = useFolderStore((s) => s.folders);
+  const t = useT();
 
   useEffect(() => {
     let depth = 0; // dragenter/leave fire for every child element
@@ -114,7 +121,7 @@ function FolderDropZone() {
       const target = customDropTarget(e.target);
       for (const path of folders) await addFolderPath(path);
       if (images.length > 0) await addCustomImages(images, target ?? undefined);
-      else if (skipped > 0 && folders.length === 0) useUiStore.getState().showNotice("폴더나 그림 파일만 놓을 수 있어요");
+      else if (skipped > 0 && folders.length === 0) useUiStore.getState().showNotice(t("drop.onlyFoldersOrImages"));
     };
     window.addEventListener("dragenter", onEnter);
     window.addEventListener("dragleave", onLeave);
@@ -126,7 +133,7 @@ function FolderDropZone() {
       window.removeEventListener("dragover", onOver);
       window.removeEventListener("drop", onDrop);
     };
-  }, [running]);
+  }, [running, t]);
 
   useEffect(() => {
     // outline the custom folder card the pictures will land in
@@ -138,7 +145,7 @@ function FolderDropZone() {
 
   if (!over || running) return null;
   const custom = folders.filter((f) => f.kind === "custom");
-  const targetName = (targetId ? folders.find((f) => f.id === targetId) : custom[0])?.name ?? "커스텀";
+  const targetName = (targetId ? folders.find((f) => f.id === targetId) : custom[0])?.name ?? t("custom.defaultName");
   return (
     <div
       style={{
@@ -170,9 +177,9 @@ function FolderDropZone() {
       >
         <i className="ph ph-folder-simple-plus" style={{ fontSize: 28 }} />
         <div>
-          <div style={{ fontSize: 14, fontWeight: 500 }}>그림은 '{targetName}' 폴더에 저장돼요</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>{t("drop.imagesInto", targetName)}</div>
           <div style={{ marginTop: 2, fontSize: 12, color: "var(--color-accent-400)" }}>
-            {custom.length > 1 ? "다른 커스텀 폴더 위에 놓으면 그 폴더에 저장 · " : ""}폴더를 놓으면 라이브러리에 등록
+            {custom.length > 1 ? t("drop.otherCustomHint") : ""}{t("drop.folderHint")}
           </div>
         </div>
       </div>

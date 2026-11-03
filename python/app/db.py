@@ -69,6 +69,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "folder_selection": [],
     # {"vk", "ctrl", "alt", "shift", "label"} -- see app/hotkey.py
     "flip_hotkey": None,
+    # UI language: "system" (follow the OS) or ko / en / ja / zh-CN -- see src/i18n
+    "language": "system",
 }
 
 _JSON_FIELDS = {"duration_presets", "count_presets", "observe_presets", "flip_hotkey", "folder_selection"}
@@ -115,7 +117,8 @@ def init_db() -> None:
                 break_seconds INTEGER NOT NULL DEFAULT 30,
                 current_folder_id TEXT,
                 folder_selection TEXT NOT NULL DEFAULT '[]',
-                flip_hotkey TEXT NOT NULL DEFAULT 'null'
+                flip_hotkey TEXT NOT NULL DEFAULT 'null',
+                language TEXT NOT NULL DEFAULT 'system'
             );
 
             CREATE TABLE IF NOT EXISTS folders (
@@ -148,6 +151,31 @@ def init_db() -> None:
                 height INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (folder_id, rel_path)
+            );
+
+            -- per-image marks set in the library: favorite, and hidden (left out of
+            -- practice sessions). rel_path is relative to the registered folder (posix).
+            CREATE TABLE IF NOT EXISTS image_flags (
+                folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+                rel_path TEXT NOT NULL,
+                favorite INTEGER NOT NULL DEFAULT 0,
+                hidden INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (folder_id, rel_path)
+            );
+
+            -- "sequences": still photos grouped in the library and played one after
+            -- another like a GIF; a practice session shows a sequence as one item.
+            -- rel_path is relative to the registered folder (posix), like image_flags.
+            CREATE TABLE IF NOT EXISTS sequences (
+                id TEXT PRIMARY KEY,
+                folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sequence_frames (
+                sequence_id TEXT NOT NULL REFERENCES sequences(id) ON DELETE CASCADE,
+                order_index INTEGER NOT NULL,
+                rel_path TEXT NOT NULL,
+                PRIMARY KEY (sequence_id, order_index)
             );
 
             -- images practiced in a history session, in display order. folder_id has
@@ -186,6 +214,7 @@ def init_db() -> None:
             "always_on_top": "INTEGER NOT NULL DEFAULT 0",
             "flip_hotkey": "TEXT NOT NULL DEFAULT 'null'",
             "folder_selection": "TEXT NOT NULL DEFAULT '[]'",
+            "language": "TEXT NOT NULL DEFAULT 'system'",
         }
         for col, ddl in migrations.items():
             if col not in existing_cols:

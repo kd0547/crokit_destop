@@ -23,6 +23,7 @@ import {
   togglePanel,
 } from "@/state/actions";
 import { durLabel, formatDateLabel, formatTimeLabel } from "@/lib/format";
+import { useT } from "@/i18n";
 import { thumbUrl } from "@/api/client";
 import { findNode } from "@/lib/folderTree";
 import { HistoryImages } from "./HistoryImages";
@@ -38,6 +39,7 @@ const chipBase: React.CSSProperties = {
   borderRadius: "var(--radius-md)",
   cursor: "pointer",
   font: "500 12px var(--font-body)",
+  whiteSpace: "nowrap",
 };
 
 function chipStyle(active: boolean, dashed = false): React.CSSProperties {
@@ -52,6 +54,7 @@ export function Sidebar() {
   const snapshot = useSessionStore((s) => s.snapshot);
   const ui = useUiStore();
   const { entries: history, stats, fetchHistory } = useHistoryStore();
+  const t = useT();
 
   const visible = settings?.panel_open ?? true;
   const running = snapshot.state !== "idle";
@@ -66,9 +69,9 @@ export function Sidebar() {
   if (!settings) return <div style={{ width: visible ? 296 : 0 }} />;
 
   const observeSecs = settings.observe_enabled ? settings.observe_seconds : 0;
-  const perImage = observeSecs ? `(관찰 ${durLabel(observeSecs)} + ${durLabel(settings.duration_seconds)})` : durLabel(settings.duration_seconds);
+  const perImage = observeSecs ? t("sidebar.perImageWithObserve", durLabel(observeSecs), durLabel(settings.duration_seconds)) : durLabel(settings.duration_seconds);
   const totalMin = Math.round(((settings.count || 0) * (observeSecs + settings.duration_seconds)) / 60);
-  const sessionSummary = settings.count ? `${perImage} × ${settings.count}장 · 약 ${totalMin}분` : `${perImage} × 무제한`;
+  const sessionSummary = settings.count ? t("sidebar.summary", perImage, settings.count, totalMin) : t("sidebar.summaryUnlimited", perImage);
 
   return (
     <aside
@@ -84,7 +87,7 @@ export function Sidebar() {
       <div style={{ width: 296, height: "100%", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 12px 10px 18px" }}>
           <div style={{ flex: 1 }} />
-          <button className="btn btn-ghost btn-icon" title="패널 닫기 ( [ )" onClick={() => togglePanel()} style={{ width: 30, height: 30 }}>
+          <button className="btn btn-ghost btn-icon" title={t("sidebar.closePanel")} onClick={() => togglePanel()} style={{ width: 30, height: 30 }}>
             <i className="ph ph-sidebar-simple" style={{ fontSize: 17 }} />
           </button>
         </div>
@@ -92,8 +95,8 @@ export function Sidebar() {
         <div style={{ display: "flex", gap: 2, margin: "0 12px 6px", padding: 3, borderRadius: "var(--radius-md)", background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
           {(
             [
-              ["session", "세션", "ph-timer"],
-              ["history", "히스토리", "ph-clock-counter-clockwise"],
+              ["session", t("sidebar.tabSession"), "ph-timer"],
+              ["history", t("sidebar.tabHistory"), "ph-clock-counter-clockwise"],
             ] as const
           ).map(([key, label, icon]) => (
             <button
@@ -125,7 +128,7 @@ export function Sidebar() {
 
               {/* observe */}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>관찰 시간 · 그리기 전</div>
+                <div style={{ fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>{t("sidebar.observe")}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(56px,1fr))", gap: 6 }}>
                   {settings.observe_presets.map((p) => (
                     <PresetChip
@@ -137,17 +140,17 @@ export function Sidebar() {
                       onRemove={() => removeObservePreset(p.seconds)}
                     />
                   ))}
-                  <button style={chipStyle(!settings.observe_enabled)} onClick={() => selectObserve(null)}>끔</button>
+                  <button style={chipStyle(!settings.observe_enabled)} onClick={() => selectObserve(null)}>{t("sidebar.off")}</button>
                   <button style={chipStyle(ui.observeEditorOpen, true)} onClick={() => ui.setObserveEditorOpen(!ui.observeEditorOpen)}>
                     <i className="ph ph-plus" style={{ fontSize: 12 }} />
-                    설정
+                    {t("common.custom")}
                   </button>
                 </div>
                 {ui.observeEditorOpen && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 10, borderRadius: "var(--radius-md)", background: "var(--color-surface-2)", border: "1px solid var(--color-accent-700)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, font: "500 12px var(--font-body)", color: "var(--color-accent-200)" }}>
                       <i className="ph ph-sliders-horizontal" style={{ fontSize: 14 }} />
-                      관찰 시간 설정
+                      {t("sidebar.observeEditor")}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <input
@@ -158,13 +161,13 @@ export function Sidebar() {
                         onChange={(e) => ui.setCustomObserve(Math.min(600, Math.max(1, Number(e.target.value) || 1)))}
                         style={inputStyle(72)}
                       />
-                      <span style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>초</span>
+                      <span style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>{t("time.secondSuffix")}</span>
                     </div>
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                      <button className="btn btn-ghost" onClick={() => ui.setObserveEditorOpen(false)} style={{ height: 28, padding: "0 10px", fontSize: 12 }}>취소</button>
+                      <button className="btn btn-ghost" onClick={() => ui.setObserveEditorOpen(false)} style={{ height: 28, padding: "0 10px", fontSize: 12 }}>{t("common.cancel")}</button>
                       <button className="btn btn-primary" onClick={addObservePreset} style={{ height: 28, padding: "0 12px", fontSize: 12, gap: 5 }}>
                         <i className="ph ph-plus" style={{ fontSize: 12 }} />
-                        {durLabel(ui.customObserve)} 추가
+                        {t("common.add", durLabel(ui.customObserve))}
                       </button>
                     </div>
                   </div>
@@ -173,7 +176,7 @@ export function Sidebar() {
 
               {/* duration */}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>한 장당 시간</div>
+                <div style={{ fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>{t("sidebar.duration")}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 }}>
                   {settings.duration_presets.map((p) => (
                     <PresetChip
@@ -187,27 +190,27 @@ export function Sidebar() {
                   ))}
                   <button style={chipStyle(ui.editorOpen, true)} onClick={() => ui.setEditorOpen(!ui.editorOpen)}>
                     <i className="ph ph-plus" style={{ fontSize: 12 }} />
-                    설정
+                    {t("common.custom")}
                   </button>
                 </div>
                 {ui.editorOpen && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 10, borderRadius: "var(--radius-md)", background: "var(--color-surface-2)", border: "1px solid var(--color-accent-700)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, font: "500 12px var(--font-body)", color: "var(--color-accent-200)" }}>
                       <i className="ph ph-sliders-horizontal" style={{ fontSize: 14 }} />
-                      시간 설정
+                      {t("sidebar.durationEditor")}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <TimeInput value={ui.customH} max={23} onChange={(v) => ui.setCustomTime(v, ui.customM, ui.customS)} suffix="시" />
+                      <TimeInput value={ui.customH} max={23} onChange={(v) => ui.setCustomTime(v, ui.customM, ui.customS)} suffix={t("time.hourSuffix")} />
                       <span style={{ color: "var(--color-neutral-700)" }}>:</span>
-                      <TimeInput value={ui.customM} max={59} onChange={(v) => ui.setCustomTime(ui.customH, v, ui.customS)} suffix="분" />
+                      <TimeInput value={ui.customM} max={59} onChange={(v) => ui.setCustomTime(ui.customH, v, ui.customS)} suffix={t("time.minuteSuffix")} />
                       <span style={{ color: "var(--color-neutral-700)" }}>:</span>
-                      <TimeInput value={ui.customS} max={59} onChange={(v) => ui.setCustomTime(ui.customH, ui.customM, v)} suffix="초" />
+                      <TimeInput value={ui.customS} max={59} onChange={(v) => ui.setCustomTime(ui.customH, ui.customM, v)} suffix={t("time.secondSuffix")} />
                     </div>
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                      <button className="btn btn-ghost" onClick={() => ui.setEditorOpen(false)} style={{ height: 28, padding: "0 10px", fontSize: 12 }}>취소</button>
+                      <button className="btn btn-ghost" onClick={() => ui.setEditorOpen(false)} style={{ height: 28, padding: "0 10px", fontSize: 12 }}>{t("common.cancel")}</button>
                       <button className="btn btn-primary" onClick={addDurationPreset} style={{ height: 28, padding: "0 12px", fontSize: 12, gap: 5 }}>
                         <i className="ph ph-plus" style={{ fontSize: 12 }} />
-                        {durLabel(Math.max(1, ui.customH * 3600 + ui.customM * 60 + ui.customS))} 추가
+                        {t("common.add", durLabel(Math.max(1, ui.customH * 3600 + ui.customM * 60 + ui.customS)))}
                       </button>
                     </div>
                   </div>
@@ -216,7 +219,7 @@ export function Sidebar() {
 
               {/* count */}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>장수</div>
+                <div style={{ fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>{t("sidebar.count")}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(56px,1fr))", gap: 6 }}>
                   {settings.count_presets.map((p) => (
                     <PresetChip
@@ -231,14 +234,14 @@ export function Sidebar() {
                   <button style={chipStyle(settings.count === 0)} onClick={() => selectCount(0)}>∞</button>
                   <button style={chipStyle(ui.countEditorOpen, true)} onClick={() => ui.setCountEditorOpen(!ui.countEditorOpen)}>
                     <i className="ph ph-plus" style={{ fontSize: 12 }} />
-                    설정
+                    {t("common.custom")}
                   </button>
                 </div>
                 {ui.countEditorOpen && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 10, borderRadius: "var(--radius-md)", background: "var(--color-surface-2)", border: "1px solid var(--color-accent-700)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, font: "500 12px var(--font-body)", color: "var(--color-accent-200)" }}>
                       <i className="ph ph-sliders-horizontal" style={{ fontSize: 14 }} />
-                      장수 설정
+                      {t("sidebar.countEditor")}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <input
@@ -249,13 +252,13 @@ export function Sidebar() {
                         onChange={(e) => ui.setCustomCount(Math.min(999, Math.max(1, Number(e.target.value) || 1)))}
                         style={inputStyle(1)}
                       />
-                      <span style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>장</span>
+                      <span style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>{t("sidebar.countSuffix")}</span>
                     </div>
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                      <button className="btn btn-ghost" onClick={() => ui.setCountEditorOpen(false)} style={{ height: 28, padding: "0 10px", fontSize: 12 }}>취소</button>
+                      <button className="btn btn-ghost" onClick={() => ui.setCountEditorOpen(false)} style={{ height: 28, padding: "0 10px", fontSize: 12 }}>{t("common.cancel")}</button>
                       <button className="btn btn-primary" onClick={addCountPreset} style={{ height: 28, padding: "0 12px", fontSize: 12, gap: 5 }}>
                         <i className="ph ph-plus" style={{ fontSize: 12 }} />
-                        {ui.customCount}장 추가
+                        {t("common.add", t("unit.images", ui.customCount))}
                       </button>
                     </div>
                   </div>
@@ -264,13 +267,13 @@ export function Sidebar() {
 
               {/* order */}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>순서</div>
+                <div style={{ fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>{t("sidebar.order")}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                   <button style={chipStyle(settings.order_mode === "random")} onClick={() => setOrderMode("random")}>
-                    <i className="ph ph-shuffle" />랜덤
+                    <i className="ph ph-shuffle" />{t("sidebar.random")}
                   </button>
                   <button style={chipStyle(settings.order_mode === "seq")} onClick={() => setOrderMode("seq")}>
-                    <i className="ph ph-list-numbers" />순서대로
+                    <i className="ph ph-list-numbers" />{t("sidebar.sequential")}
                   </button>
                 </div>
               </div>
@@ -278,10 +281,11 @@ export function Sidebar() {
               {/* break interval */}
               <div style={{ display: "flex", flexDirection: "column", gap: 8, opacity: settings.breaks_enabled ? 1 : 0.45, transition: "opacity .2s" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ flex: 1, fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>휴식 간격</div>
-                  <span style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>{settings.breaks_enabled ? "켜짐" : "꺼짐 · 설정에서 켜기"}</span>
+                  <div style={{ flex: 1, fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>{t("sidebar.breaks")}</div>
+                  <span style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>{settings.breaks_enabled ? t("sidebar.breaksOn") : t("sidebar.breaksOff")}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-neutral-400)" }}>
+                  {t("sidebar.breakBefore") && <span>{t("sidebar.breakBefore")}</span>}
                   <input
                     type="number"
                     min={1}
@@ -291,7 +295,7 @@ export function Sidebar() {
                     onChange={(e) => setBreakEvery(Number(e.target.value) || 1)}
                     style={inputStyle(56)}
                   />
-                  <span>장마다</span>
+                  <span>{t("sidebar.breakMiddle")}</span>
                   <input
                     type="number"
                     min={1}
@@ -301,7 +305,7 @@ export function Sidebar() {
                     onChange={(e) => setBreakSeconds(Number(e.target.value) || 1)}
                     style={inputStyle(56)}
                   />
-                  <span>초 휴식</span>
+                  <span>{t("sidebar.breakAfter")}</span>
                 </div>
               </div>
 
@@ -311,12 +315,12 @@ export function Sidebar() {
 
           {ui.section === "history" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {history.length === 0 && <div style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>아직 연습 기록이 없습니다.</div>}
+              {history.length === 0 && <div style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>{t("history.empty")}</div>}
               {history.map((h) => (
                 <div key={h.id} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "10px 0" }}>
                   <button
                     className="history-row"
-                    title="연습한 이미지 목록 보기"
+                    title={t("history.viewImages")}
                     onClick={() => ui.setHistoryView({ entryId: h.id, index: null })}
                     style={{
                       display: "flex",
@@ -337,7 +341,7 @@ export function Sidebar() {
                     <div style={{ display: "flex", gap: 6, fontSize: 11, color: "var(--color-neutral-500)" }}>
                       <span>{h.folder_name}</span>
                       <span style={{ color: "var(--color-neutral-800)" }}>·</span>
-                      <span>{durLabel(h.duration_seconds)} × {h.images_count}장 · {h.minutes}분</span>
+                      <span>{t("history.summary", durLabel(h.duration_seconds), h.images_count, h.minutes)}</span>
                     </div>
                   </button>
                   <HistoryImages entry={h} />
@@ -345,12 +349,12 @@ export function Sidebar() {
               ))}
               <div style={{ display: "flex", gap: 18, marginTop: 6, padding: "14px 0 4px", borderTop: "1px solid var(--color-divider)" }}>
                 <div>
-                  <div style={{ fontSize: 20, fontWeight: 500 }}>{stats.sessions}회</div>
-                  <div style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>이번 주 세션</div>
+                  <div style={{ fontSize: 20, fontWeight: 500 }}>{t("unit.sessions", stats.sessions)}</div>
+                  <div style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>{t("history.weekSessions")}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 20, fontWeight: 500 }}>{stats.minutes}분</div>
-                  <div style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>이번 주 연습 시간</div>
+                  <div style={{ fontSize: 20, fontWeight: 500 }}>{t("unit.minutes", stats.minutes)}</div>
+                  <div style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>{t("history.weekMinutes")}</div>
                 </div>
               </div>
             </div>
@@ -365,9 +369,9 @@ export function Sidebar() {
             style={{ height: 40, gap: 8 }}
           >
             <i className={`ph ${running ? "ph-stop" : "ph-play"}`} style={{ fontSize: 15 }} />
-            {running ? "세션 종료" : "시작"}
+            {running ? t("sidebar.stop") : t("sidebar.start")}
           </button>
-          <div style={{ fontSize: 11, color: "var(--color-neutral-700)", textAlign: "center" }}>Space 세션 · ← → 사진 · K GIF</div>
+          <div style={{ fontSize: 11, color: "var(--color-neutral-700)", textAlign: "center" }}>{t("sidebar.shortcutsHint")}</div>
         </div>
       </div>
     </aside>
@@ -382,6 +386,7 @@ function FolderSection({ running }: { running: boolean }) {
   const items = useSettingsStore((s) => s.settings?.folder_selection ?? []);
   const browsing = useUiStore((s) => s.browsing);
   const setBrowsing = useUiStore((s) => s.setBrowsing);
+  const t = useT();
 
   // up to 4 covers, spread over the selected folders
   const covers: { folderId: string; path: string }[] = [];
@@ -397,8 +402,8 @@ function FolderSection({ running }: { running: boolean }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <div style={{ flex: 1, fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>사진 폴더</div>
-        <button className="btn btn-ghost btn-icon" title="폴더 등록" onClick={addFolderViaDialog} style={{ width: 24, height: 24 }}>
+        <div style={{ flex: 1, fontSize: 11, letterSpacing: ".06em", color: "var(--color-neutral-600)" }}>{t("folders.title")}</div>
+        <button className="btn btn-ghost btn-icon" title={t("folders.add")} onClick={addFolderViaDialog} style={{ width: 24, height: 24 }}>
           <i className="ph ph-plus" style={{ fontSize: 14 }} />
         </button>
       </div>
@@ -416,9 +421,9 @@ function FolderSection({ running }: { running: boolean }) {
         {folders.length === 0 ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "10px 4px 4px", textAlign: "center", fontSize: 11.5, color: "var(--color-neutral-600)" }}>
             <i className="ph ph-folders" style={{ fontSize: 24, color: "var(--color-accent-700)" }} />
-            레퍼런스 사진 폴더를 등록하세요
+            {t("folders.emptyTitle")}
             <br />
-            (하위 폴더 포함 · 끌어다 놓기 가능)
+            {t("folders.emptyHint")}
           </div>
         ) : (
           <>
@@ -430,8 +435,8 @@ function FolderSection({ running }: { running: boolean }) {
               </div>
             )}
             <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-              <span style={{ fontWeight: 500 }}>{items.length ? `${items.length}개 폴더` : "선택된 폴더 없음"}</span>
-              <span style={{ fontSize: 11, color: "var(--color-neutral-600)", fontVariantNumeric: "tabular-nums" }}>{loading ? "…" : `${files.length}장`}</span>
+              <span style={{ fontWeight: 500 }}>{items.length ? t("unit.folders", items.length) : t("folders.noneSelected")}</span>
+              <span style={{ fontSize: 11, color: "var(--color-neutral-600)", fontVariantNumeric: "tabular-nums" }}>{loading ? "…" : t("unit.images", files.length)}</span>
             </div>
             {items.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
@@ -446,11 +451,11 @@ function FolderSection({ running }: { running: boolean }) {
           className="btn btn-primary btn-block"
           onClick={() => (folders.length === 0 ? addFolderViaDialog() : setBrowsing(!browsing))}
           disabled={running}
-          title={running ? "세션 중에는 폴더를 바꿀 수 없습니다" : undefined}
+          title={running ? t("folders.lockedDuringSession") : undefined}
           style={{ height: 32, fontSize: 12.5, gap: 6 }}
         >
           <i className={`ph ${folders.length === 0 ? "ph-folder-simple-plus" : browsing ? "ph-x" : "ph-squares-four"}`} style={{ fontSize: 14 }} />
-          {folders.length === 0 ? "폴더 등록" : browsing ? "라이브러리 닫기" : "라이브러리에서 고르기"}
+          {folders.length === 0 ? t("folders.add") : browsing ? t("folders.closeLibrary") : t("folders.pickFromLibrary")}
         </button>
       </div>
     </div>
@@ -470,6 +475,7 @@ function PresetChip({
   onSelect: () => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   return (
     <div style={{ position: "relative", display: "flex" }}>
       <button style={chipStyle(active)} onClick={onSelect}>
@@ -477,7 +483,7 @@ function PresetChip({
       </button>
       {removable && (
         <button
-          title="삭제"
+          title={t("common.delete")}
           onClick={(e) => {
             e.stopPropagation();
             onRemove();

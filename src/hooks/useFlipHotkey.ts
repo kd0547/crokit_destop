@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { withToken } from "@/api/client";
 import { toggleSetting } from "@/state/actions";
 
 // while the user is recording a new key in the settings menu, the old key must not flip
@@ -13,7 +14,7 @@ export function setHotkeyCapturing(v: boolean): void {
  */
 export function useFlipHotkey() {
   useEffect(() => {
-    const url = window.crokit.apiBase.replace(/^http/, "ws") + "/hotkey/ws";
+    const url = withToken(window.crokit.apiBase.replace(/^http/, "ws") + "/hotkey/ws");
     let ws: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;

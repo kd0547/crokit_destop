@@ -1,14 +1,16 @@
 import argparse
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 
-from . import db, hotkey
-from .routers import custom, files, folders, gif, history, settings, thumbnail
+from . import db, hotkey, image_ops, security
+from .routers import custom, folders, gif, history, settings, thumbnail
 from .routers import hotkey as hotkey_router
 
 logging.basicConfig(level=logging.INFO)
@@ -17,6 +19,7 @@ logger = logging.getLogger("crokit")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    security.install_log_redaction()
     db.init_db()
     conn = db.get_connection()
     try:
@@ -30,14 +33,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="crokit backend", lifespan=lifespan)
 
-# Fully local desktop app (server is bound to 127.0.0.1 only, see __main__ below),
-# so a permissive CORS policy for the Electron renderer origin is fine here.
+# Bound to 127.0.0.1 only (see __main__ below), but websites the user visits
+# can still send requests here, so (see app/security.py):
+# - every request needs the per-launch token (TokenMiddleware)
+# - CORS only lets the renderer read responses: the packaged app loads from
+#   file://, whose origin is "null"; the Vite dev server origin comes via env
+# - TrustedHost blocks DNS rebinding (a website's own domain pointed at 127.0.0.1)
+# Starlette runs the last-added middleware first: TrustedHost -> CORS -> token.
+_allowed_origins = ["null"]
+if os.environ.get("CROKIT_DEV_ORIGIN"):
+    _allowed_origins.append(os.environ["CROKIT_DEV_ORIGIN"])
+
+app.add_middleware(security.TokenMiddleware, token=security.API_TOKEN)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_allowed_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "X-Crokit-Token"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1"])
 
 
 @app.exception_handler(Exception)
@@ -55,7 +69,15 @@ def health():
 
 
 app.include_router(custom.router)
-app.include_router(files.router)
+@app.get("/files")
+def get_file(path: str):
+    # images in registered folders, plus extracted GIF frames
+    p = security.resolve_allowed(path, extra_roots=[db.FRAMES_DIR])
+    if not image_ops.is_image(p):
+        raise HTTPException(status_code=404, detail="file not found")
+    return FileResponse(p)
+
+
 app.include_router(folders.router)
 app.include_router(gif.router)
 app.include_router(history.router)

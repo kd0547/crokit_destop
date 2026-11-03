@@ -6,9 +6,10 @@ import { useFolderStore } from "@/state/folderStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { useSessionStore } from "@/state/sessionStore";
 import { useUiStore } from "@/state/uiStore";
-import { extendTimer, gifClearRange, gifSetA, gifSetB, gifStep, gifTogglePlay, gifToggleFreeze, loadGifFrames, nextPhoto, prevPhoto, resetTimer, stopSession, togglePause, wake } from "@/state/actions";
+import { extendTimer, gifClearRange, gifSetA, gifSetB, gifStep, gifTogglePlay, gifToggleFreeze, loadGifFrames, nextPhoto, prevPhoto, resetTimer, stopSequence, stopSession, togglePause, wake } from "@/state/actions";
 import { addFolderViaDialog, browseStep, startSession, togglePanel, toggleSetting } from "@/state/actions";
 import { durLabel, fmtClock } from "@/lib/format";
+import { useT } from "@/i18n";
 import { gridBackgroundImage, hexToRgba } from "@/lib/color";
 import { LibraryLayer } from "./LibraryLayer";
 import { HistoryLayer } from "./HistoryLayer";
@@ -17,6 +18,7 @@ import { useImageView } from "@/hooks/useImageView";
 const GIF_FPS = 12;
 
 export function Stage() {
+  const t = useT();
   const files = useFolderStore((s) => s.files);
   const settings = useSettingsStore((s) => s.settings);
   const snapshot = useSessionStore((s) => s.snapshot);
@@ -29,14 +31,24 @@ export function Stage() {
 
   const sessionActive = snapshot.state !== "idle";
   const currentPath = sessionActive ? snapshot.current?.path ?? null : files[ui.currentIndex]?.path ?? null;
-  const currentIsGif = sessionActive ? !!snapshot.current?.isGif : !!files[ui.currentIndex]?.is_gif;
+  // photos playing like a GIF: a picked preview from the library (no session only),
+  // or a saved sequence that is the current playlist item
+  const preview = sessionActive ? null : ui.sequence;
+  const itemFrames = sessionActive ? snapshot.current?.frames : files[ui.currentIndex]?.frames;
+  const sequence = preview ?? (itemFrames && itemFrames.length > 1 ? itemFrames : null);
+  // the snapshot is replaced on every tick; compare frames by value so playback doesn't restart
+  const sequenceKey = sequence?.join("\n") ?? "";
+  const currentIsGif = sequence ? true : sessionActive ? !!snapshot.current?.isGif : !!files[ui.currentIndex]?.is_gif;
   const visible = !sessionActive || snapshot.state === "paused" || ui.uiAwake;
   const low = snapshot.state === "running" && snapshot.remainingMs <= 10000;
 
   useEffect(() => {
-    if (currentIsGif && currentPath) loadGifFrames(currentPath);
+    if (sequence) {
+      useUiStore.getState().setGifFrames(sequence);
+      useUiStore.getState().resetGif();
+    } else if (currentIsGif && currentPath) loadGifFrames(currentPath);
     else useUiStore.setState({ gifFrames: [] });
-  }, [currentPath, currentIsGif]);
+  }, [currentPath, currentIsGif, sequenceKey]);
 
   // GIF playback loop
   useEffect(() => {
@@ -70,13 +82,13 @@ export function Stage() {
   const copyImage = useCallback(async (source: string) => {
     try {
       await copyImageToClipboard([fileUrl(source)]);
-      useUiStore.getState().showNotice("이미지를 클립보드에 복사했습니다");
+      useUiStore.getState().showNotice(t("stage.copied"));
     } catch (error) {
       console.error("Image clipboard copy failed", error);
       const detail = error instanceof Error ? error.message : String(error);
-      useUiStore.getState().showNotice(`이미지 복사 실패: ${detail}`);
+      useUiStore.getState().showNotice(t("stage.copyFailed", detail));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     setContextMenu(null);
@@ -158,14 +170,14 @@ export function Stage() {
               </span>
               {(snapshot.state === "observe" || snapshot.state === "break") && (
                 <span style={{ fontSize: 12, fontWeight: 500, color: "var(--color-accent-300)", paddingLeft: 12, borderLeft: "1px solid #2a2b36" }}>
-                  {snapshot.state === "observe" ? "관찰" : "휴식"}
+                  {snapshot.state === "observe" ? t("stage.observe") : t("stage.break")}
                 </span>
               )}
             </div>
           )}
 
           <div ref={containerRef} {...imageView.handlers}
-            title="휠: 확대/축소 · 왼쪽 드래그: 이동 · 오른쪽 드래그: 화면 중심 기준 회전 · 더블클릭: 초기화"
+            title={t("stage.viewHint")}
             onContextMenu={(event) => {
               event.preventDefault();
               if (imageView.shouldSuppressContextMenu() || !currentPath || !displaySrc) return;
@@ -205,7 +217,7 @@ export function Stage() {
           )}
 
           {currentIsGif && (
-            <GifBar frameCount={ui.gifFrames.length} visible={visible} />
+            <GifBar frameCount={ui.gifFrames.length} visible={visible} sequence={!!sequence} closable={!!preview} />
           )}
 
           {settings && !settings.panel_open ? (
@@ -232,24 +244,24 @@ export function Stage() {
               }}
               className="no-drag"
             >
-              <ControlIcon icon="ph ph-caret-left" title="이전 (←)" onClick={prevPhoto} size={36} iconSize={17} />
+              <ControlIcon icon="ph ph-caret-left" title={t("common.prev")} onClick={prevPhoto} size={36} iconSize={17} />
               <ControlIcon
                 icon={snapshot.state === "paused" ? "ph-fill ph-play" : "ph-fill ph-pause"}
-                title="일시정지 (Space)"
+                title={t("stage.pause")}
                 onClick={togglePause}
                 size={40}
                 iconSize={18}
                 accent
               />
-              <ControlIcon icon="ph ph-caret-right" title="다음 (→)" onClick={nextPhoto} size={36} iconSize={17} />
+              <ControlIcon icon="ph ph-caret-right" title={t("common.next")} onClick={nextPhoto} size={36} iconSize={17} />
               <div style={{ width: 1, height: 18, background: "#23242f", margin: "0 4px" }} />
               <TimerControls size={36} fontSize={12} iconSize={16} />
               <div style={{ width: 1, height: 18, background: "#23242f", margin: "0 4px" }} />
-              <ControlIcon icon="ph ph-circle-half" title="흑백" onClick={() => toggleSetting("gray")} size={36} iconSize={16} active={settings?.gray} />
-              <ControlIcon icon="ph ph-flip-horizontal" title="좌우 반전" onClick={() => toggleSetting("flip")} size={36} iconSize={16} active={settings?.flip} />
-              <ControlIcon icon="ph ph-grid-nine" title="그리드" onClick={() => toggleSetting("grid")} size={36} iconSize={16} active={settings?.grid} />
+              <ControlIcon icon="ph ph-circle-half" title={t("stage.gray")} onClick={() => toggleSetting("gray")} size={36} iconSize={16} active={settings?.gray} />
+              <ControlIcon icon="ph ph-flip-horizontal" title={t("stage.flip")} onClick={() => toggleSetting("flip")} size={36} iconSize={16} active={settings?.flip} />
+              <ControlIcon icon="ph ph-grid-nine" title={t("stage.grid")} onClick={() => toggleSetting("grid")} size={36} iconSize={16} active={settings?.grid} />
               <div style={{ width: 1, height: 18, background: "#23242f", margin: "0 4px" }} />
-              <ControlIcon icon="ph ph-stop" title="세션 종료" onClick={stopSession} size={36} iconSize={16} />
+              <ControlIcon icon="ph ph-stop" title={t("stage.stop")} onClick={stopSession} size={36} iconSize={16} />
             </div>
           )}
 
@@ -260,10 +272,10 @@ export function Stage() {
       {contextMenu && (
         <MenuList
           entries={[
-            { label: currentIsGif ? "현재 프레임 복사" : "이미지 복사", hint: "Ctrl+C", onClick: () => { void copyImage(contextMenu.source); } },
-            { label: "파일 위치 열기", onClick: () => {
+            { label: currentIsGif ? t("stage.copyFrame") : t("stage.copyImage"), hint: "Ctrl+C", onClick: () => { void copyImage(contextMenu.source); } },
+            { label: t("stage.showInFolder"), onClick: () => {
               void window.crokit.files.showInFolder(contextMenu.path).catch(() => {
-                useUiStore.getState().showNotice("파일 위치를 열지 못했습니다. 원본 파일을 확인하세요");
+                useUiStore.getState().showNotice(t("stage.showInFolderFailed"));
               });
             } },
           ]}
@@ -321,12 +333,13 @@ function ControlIcon({
 
 /** +30s / +1min / reset for the clock that is showing (observe, drawing or break). */
 function TimerControls({ size, fontSize, iconSize }: { size: number; fontSize: number; iconSize: number }) {
+  const t = useT();
   const textStyle = { height: size, padding: "0 7px", fontSize, fontWeight: 500, fontVariantNumeric: "tabular-nums" as const, color: "var(--color-neutral-500)" };
   return (
     <>
-      <button title="30초 연장 (=)" onClick={() => extendTimer(30)} className="btn btn-ghost" style={textStyle}>+30초</button>
-      <button title="1분 연장 (Shift + =)" onClick={() => extendTimer(60)} className="btn btn-ghost" style={textStyle}>+1분</button>
-      <ControlIcon icon="ph ph-arrow-counter-clockwise" title="타이머 리셋 (T)" onClick={resetTimer} size={size} iconSize={iconSize} />
+      <button title={t("stage.extend30")} onClick={() => extendTimer(30)} className="btn btn-ghost" style={textStyle}>{t("stage.extend30Label")}</button>
+      <button title={t("stage.extend60")} onClick={() => extendTimer(60)} className="btn btn-ghost" style={textStyle}>{t("stage.extend60Label")}</button>
+      <ControlIcon icon="ph ph-arrow-counter-clockwise" title={t("stage.resetTimer")} onClick={resetTimer} size={size} iconSize={iconSize} />
     </>
   );
 }
@@ -340,9 +353,10 @@ function ControlDock({ bottom }: { bottom: number }) {
   const snapshot = useSessionStore((s) => s.snapshot);
   const hasFiles = useFolderStore((s) => s.files.length > 0);
   const [hover, setHover] = useState(false);
+  const t = useT();
 
   const sessionActive = snapshot.state !== "idle";
-  const summary = settings ? `${durLabel(settings.duration_seconds)} × ${settings.count ? `${settings.count}장` : "무제한"}` : "";
+  const summary = settings ? `${durLabel(settings.duration_seconds)} × ${settings.count ? t("unit.images", settings.count) : t("stage.unlimited")}` : "";
 
   return (
     <div
@@ -386,23 +400,23 @@ function ControlDock({ bottom }: { bottom: number }) {
           pointerEvents: hover ? "auto" : "none",
         }}
       >
-        <ControlIcon icon="ph ph-sidebar-simple" title="패널 열기 ( [ )" onClick={togglePanel} size={30} iconSize={14} />
+        <ControlIcon icon="ph ph-sidebar-simple" title={t("stage.openPanel")} onClick={togglePanel} size={30} iconSize={14} />
         <div style={{ width: 1, height: 16, background: "#23242f", margin: "0 3px" }} />
-        <ControlIcon icon="ph ph-caret-left" title="이전 (←)" onClick={() => (sessionActive ? prevPhoto() : browseStep(-1))} size={30} iconSize={15} />
+        <ControlIcon icon="ph ph-caret-left" title={t("common.prev")} onClick={() => (sessionActive ? prevPhoto() : browseStep(-1))} size={30} iconSize={15} />
         {sessionActive ? (
           <ControlIcon
             icon={snapshot.state === "paused" ? "ph-fill ph-play" : "ph-fill ph-pause"}
-            title="일시정지 (Space)"
+            title={t("stage.pause")}
             onClick={togglePause}
             size={34}
             iconSize={16}
             accent
           />
         ) : (
-          <ControlIcon icon="ph-fill ph-play" title="시작 (Space)" onClick={() => hasFiles && startSession()} size={34} iconSize={16} accent />
+          <ControlIcon icon="ph-fill ph-play" title={t("stage.start")} onClick={() => hasFiles && startSession()} size={34} iconSize={16} accent />
         )}
-        <ControlIcon icon="ph ph-caret-right" title="다음 (→)" onClick={() => (sessionActive ? nextPhoto() : browseStep(1))} size={30} iconSize={15} />
-        {sessionActive && <ControlIcon icon="ph ph-stop" title="세션 종료 (Esc)" onClick={stopSession} size={30} iconSize={14} />}
+        <ControlIcon icon="ph ph-caret-right" title={t("common.next")} onClick={() => (sessionActive ? nextPhoto() : browseStep(1))} size={30} iconSize={15} />
+        {sessionActive && <ControlIcon icon="ph ph-stop" title={t("stage.stopEsc")} onClick={stopSession} size={30} iconSize={14} />}
         {sessionActive && (
           <>
             <div style={{ width: 1, height: 16, background: "#23242f", margin: "0 3px" }} />
@@ -410,30 +424,31 @@ function ControlDock({ bottom }: { bottom: number }) {
           </>
         )}
         <div style={{ width: 1, height: 16, background: "#23242f", margin: "0 3px" }} />
-        <ControlIcon icon="ph ph-circle-half" title="흑백" onClick={() => toggleSetting("gray")} size={30} iconSize={14} active={settings?.gray} />
-        <ControlIcon icon="ph ph-flip-horizontal" title="좌우 반전" onClick={() => toggleSetting("flip")} size={30} iconSize={14} active={settings?.flip} />
-        <ControlIcon icon="ph ph-grid-nine" title="그리드" onClick={() => toggleSetting("grid")} size={30} iconSize={14} active={settings?.grid} />
+        <ControlIcon icon="ph ph-circle-half" title={t("stage.gray")} onClick={() => toggleSetting("gray")} size={30} iconSize={14} active={settings?.gray} />
+        <ControlIcon icon="ph ph-flip-horizontal" title={t("stage.flip")} onClick={() => toggleSetting("flip")} size={30} iconSize={14} active={settings?.flip} />
+        <ControlIcon icon="ph ph-grid-nine" title={t("stage.grid")} onClick={() => toggleSetting("grid")} size={30} iconSize={14} active={settings?.grid} />
         {!sessionActive && <span style={{ padding: "0 8px 0 6px", fontSize: 11, color: "var(--color-neutral-500)" }}>{summary}</span>}
       </div>
     </div>
   );
 }
 
-function GifBar({ frameCount, visible }: { frameCount: number; visible: boolean }) {
+function GifBar({ frameCount, visible, sequence, closable }: { frameCount: number; visible: boolean; sequence: boolean; closable: boolean }) {
   const ui = useUiStore();
   const playing = ui.gifPlaying && !ui.gifFrozen;
   const hasRange = !(ui.gifA === 0 && ui.gifB === frameCount - 1);
+  const t = useT();
 
   return (
     <>
       <div style={{ position: "absolute", top: 26, left: 26, zIndex: 5, display: "flex", alignItems: "center", gap: 6, pointerEvents: "none", transition: "opacity .4s", opacity: visible ? 1 : 0.4 }}>
-        <span style={{ display: "inline-flex", alignItems: "center", fontSize: 10, letterSpacing: ".06em", padding: "3px 10px", borderRadius: 6, background: "var(--color-accent-800)", color: "var(--color-accent-100)" }}>GIF</span>
+        <span style={{ display: "inline-flex", alignItems: "center", fontSize: 10, letterSpacing: ".06em", padding: "3px 10px", borderRadius: 6, background: "var(--color-accent-800)", color: "var(--color-accent-100)" }}>{sequence ? t("sequence.badge") : "GIF"}</span>
         <span style={{ fontSize: 11, color: "var(--color-neutral-400)", fontVariantNumeric: "tabular-nums" }}>
-          {frameCount}프레임 · {GIF_FPS}fps · {(frameCount / GIF_FPS).toFixed(1)}초
+          {sequence ? t("sequence.info", frameCount, GIF_FPS) : t("gif.info", frameCount, GIF_FPS, (frameCount / GIF_FPS).toFixed(1))}
         </span>
         {ui.gifFrozen && (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, padding: "3px 10px", borderRadius: 6, border: "1px solid var(--color-accent)", color: "var(--color-accent)" }}>
-            <i className="ph ph-push-pin" />프레임 고정됨
+            <i className="ph ph-push-pin" />{t("gif.frozen")}
           </span>
         )}
       </div>
@@ -464,7 +479,7 @@ function GifBar({ frameCount, visible }: { frameCount: number; visible: boolean 
             return (
               <button
                 key={i}
-                title={`${i + 1}프레임`}
+                title={t("gif.frame", i + 1)}
                 onClick={() => {
                   ui.setGifFrame(i);
                   ui.setGifPlaying(false);
@@ -485,9 +500,9 @@ function GifBar({ frameCount, visible }: { frameCount: number; visible: boolean 
           })}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap" }}>
-          <ControlIcon icon="ph ph-skip-back" title="이전 프레임 ( , )" onClick={() => gifStep(-1)} size={30} iconSize={15} />
-          <ControlIcon icon={playing ? "ph-fill ph-pause" : "ph-fill ph-play"} title="GIF 재생/정지 (K)" onClick={gifTogglePlay} size={34} iconSize={16} accent />
-          <ControlIcon icon="ph ph-skip-forward" title="다음 프레임 ( . )" onClick={() => gifStep(1)} size={30} iconSize={15} />
+          <ControlIcon icon="ph ph-skip-back" title={t("gif.prevFrame")} onClick={() => gifStep(-1)} size={30} iconSize={15} />
+          <ControlIcon icon={playing ? "ph-fill ph-pause" : "ph-fill ph-play"} title={t("gif.playPause")} onClick={gifTogglePlay} size={34} iconSize={16} accent />
+          <ControlIcon icon="ph ph-skip-forward" title={t("gif.nextFrame")} onClick={() => gifStep(1)} size={30} iconSize={15} />
           <span style={{ flex: "none", fontSize: 12, fontVariantNumeric: "tabular-nums", color: "var(--color-neutral-300)" }}>
             {String(ui.gifFrame + 1).padStart(2, "0")} / {frameCount}
           </span>
@@ -503,9 +518,9 @@ function GifBar({ frameCount, visible }: { frameCount: number; visible: boolean 
             ))}
           </div>
           <div style={{ flex: 1, minWidth: 4 }} />
-          <button className="btn btn-ghost" onClick={gifSetA} title="현재 프레임을 구간 시작으로" style={{ flex: "none", height: 28, padding: "0 6px", fontSize: 12 }}>A{ui.gifA + 1}</button>
-          <button className="btn btn-ghost" onClick={gifSetB} title="현재 프레임을 구간 끝으로" style={{ flex: "none", height: 28, padding: "0 6px", fontSize: 12 }}>B{ui.gifB + 1}</button>
-          <ControlIcon icon="ph ph-arrows-counter-clockwise" title="구간 해제" onClick={gifClearRange} size={28} iconSize={14} />
+          <button className="btn btn-ghost" onClick={gifSetA} title={t("gif.setStart")} style={{ flex: "none", height: 28, padding: "0 6px", fontSize: 12 }}>A{ui.gifA + 1}</button>
+          <button className="btn btn-ghost" onClick={gifSetB} title={t("gif.setEnd")} style={{ flex: "none", height: 28, padding: "0 6px", fontSize: 12 }}>B{ui.gifB + 1}</button>
+          <ControlIcon icon="ph ph-arrows-counter-clockwise" title={t("gif.clearRange")} onClick={gifClearRange} size={28} iconSize={14} />
           <div style={{ width: 1, height: 18, background: "#23242f", margin: "0 2px" }} />
           <button
             className="btn btn-secondary"
@@ -513,8 +528,9 @@ function GifBar({ frameCount, visible }: { frameCount: number; visible: boolean 
             style={{ flex: "none", whiteSpace: "nowrap", height: 30, padding: "0 12px", fontSize: 12, gap: 6, color: ui.gifFrozen ? "var(--color-accent-200)" : "var(--color-neutral-300)", borderColor: ui.gifFrozen ? "var(--color-accent-500)" : "var(--color-border-strong)" }}
           >
             <i className="ph ph-push-pin" style={{ fontSize: 14 }} />
-            {ui.gifFrozen ? "고정 해제" : "프레임 고정"}
+            {ui.gifFrozen ? t("gif.unfreeze") : t("gif.freeze")}
           </button>
+          {closable && <ControlIcon icon="ph ph-x" title={t("sequence.close")} onClick={stopSequence} size={30} iconSize={15} />}
         </div>
       </div>
     </>
@@ -528,6 +544,7 @@ function IdleOverlay() {
   const files = useFolderStore((s) => s.files);
   // only the notice fades out; `done` itself stays set (startSession uses it to restart from the top)
   const [shown, setShown] = useState(false);
+  const t = useT();
 
   useEffect(() => {
     if (!done) return;
@@ -551,9 +568,9 @@ function IdleOverlay() {
         opacity: shown ? 1 : 0,
       }}
     >
-      <div style={{ fontSize: 16, fontWeight: 500 }}>{`세션 완료 · ${done.n}장`}</div>
+      <div style={{ fontSize: 16, fontWeight: 500 }}>{t("stage.doneTitle", done.n)}</div>
       <div style={{ fontSize: 12, color: "var(--color-neutral-600)", marginTop: 4 }}>
-        {done.n > 0 ? `${done.mins}분 연습했어요. 히스토리에 저장됨.` : "시간을 다 채운 이미지가 없어 히스토리에 저장하지 않았어요."}
+        {done.n > 0 ? t("stage.doneSaved", done.mins) : t("stage.doneNotSaved")}
       </div>
     </div>
   );
@@ -563,14 +580,15 @@ function EmptyState() {
   const hasFolders = useFolderStore((s) => s.folders.length > 0);
   const hasSelection = useSettingsStore((s) => (s.settings?.folder_selection.length ?? 0) > 0);
   const setBrowsing = useUiStore((s) => s.setBrowsing);
-  const message = !hasFolders ? "사진 폴더를 등록하세요" : hasSelection ? "선택한 폴더에 이미지가 없습니다" : "연습할 폴더를 고르세요";
+  const t = useT();
+  const message = !hasFolders ? t("stage.emptyNoFolders") : hasSelection ? t("stage.emptyNoImages") : t("stage.emptyPickFolder");
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, color: "var(--color-neutral-700)" }}>
       <i className="ph ph-image" style={{ fontSize: 32 }} />
       <span style={{ fontSize: 12.5 }}>{message}</span>
       <button className="btn btn-ghost" onClick={() => (hasFolders ? setBrowsing(true) : addFolderViaDialog())} style={{ height: 30, padding: "0 12px", fontSize: 12.5, gap: 6 }}>
         <i className={`ph ${hasFolders ? "ph-squares-four" : "ph-folder-simple-plus"}`} style={{ fontSize: 14 }} />
-        {hasFolders ? "라이브러리 열기" : "폴더 등록"}
+        {hasFolders ? t("stage.openLibrary") : t("folders.add")}
       </button>
     </div>
   );

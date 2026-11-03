@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -8,11 +9,14 @@ from typing import Iterator
 
 from fastapi import APIRouter, HTTPException
 
-from .. import db, image_ops
-from ..models import AddFolderRequest, FolderFile, FolderFilesRequest, FolderNode, FolderOut
+from .. import db, image_ops, security
+from ..models import AddFolderRequest, FolderFile, FolderFilesRequest, FolderNode, FolderOut, ImageFlags, ImageFlagsUpdate, SequenceCreate, SequenceOut
 from ..thumbnail import delete_folder_thumbnails
 
 router = APIRouter(prefix="/folders", tags=["folders"])
+
+# Error `detail`s shown to the user are codes; the frontend translates them
+# (src/i18n, keys "error.<code>").
 
 SAMPLE_COUNT = 3
 MAX_DEPTH = 16  # 심볼릭 링크/정션 외의 비정상적으로 깊은 구조 방어용
@@ -27,8 +31,17 @@ def _skip_dir(entry: os.DirEntry) -> bool:
     return not entry.is_dir(follow_symlinks=False)
 
 
+def _name_sort_key(path: Path) -> tuple[tuple[str | int, ...], str, str]:
+    """Case-insensitive name order, comparing numbers numerically (1, 2, 10)."""
+    name = path.name.casefold()
+    parts = re.split(r"([0-9]+)", name)
+    natural = tuple(int(part) if i % 2 else part for i, part in enumerate(parts))
+    # Keep equal numeric names (e.g. 01 and 1) deterministic across scans.
+    return natural, name, path.name
+
+
 def _list_dir(path: Path) -> tuple[list[Path], list[Path]]:
-    """(이미지 파일, 하위 폴더) -- 이름순(대소문자 무시)."""
+    """(이미지 파일, 하위 폴더) -- 자연스러운 이름순(대소문자 무시)."""
     files: list[Path] = []
     dirs: list[Path] = []
     try:
@@ -43,8 +56,7 @@ def _list_dir(path: Path) -> tuple[list[Path], list[Path]]:
                     continue
     except OSError:
         return [], []
-    key = lambda p: p.name.lower()
-    return sorted(files, key=key), sorted(dirs, key=key)
+    return sorted(files, key=_name_sort_key), sorted(dirs, key=_name_sort_key)
 
 
 def _iter_images(path: Path, recursive: bool, depth: int = 0) -> Iterator[Path]:
@@ -85,8 +97,82 @@ def _resolve_in_root(root: Path, rel_path: str) -> Path:
     try:
         target.relative_to(root.resolve())
     except ValueError:
-        raise HTTPException(status_code=400, detail="등록 폴더 밖의 경로입니다")
+        raise HTTPException(status_code=400, detail="path_outside_folder")
     return target
+
+
+def _load_flags(folder_ids: set[str]) -> dict[tuple[str, str], tuple[bool, bool]]:
+    """(folder_id, rel_path) -> (favorite, hidden) for images that have any mark."""
+    if not folder_ids:
+        return {}
+    conn = db.get_connection()
+    try:
+        marks = ",".join("?" * len(folder_ids))
+        rows = conn.execute(
+            f"SELECT folder_id, rel_path, favorite, hidden FROM image_flags WHERE folder_id IN ({marks})", list(folder_ids)
+        ).fetchall()
+    finally:
+        conn.close()
+    return {(r["folder_id"], r["rel_path"]): (bool(r["favorite"]), bool(r["hidden"])) for r in rows}
+
+
+def _load_sequences(folder_ids: set[str]) -> dict[tuple[str, str], tuple[str, int]]:
+    """(folder_id, rel_path) -> (sequence_id, order_index) for photos in a sequence."""
+    if not folder_ids:
+        return {}
+    conn = db.get_connection()
+    try:
+        marks = ",".join("?" * len(folder_ids))
+        rows = conn.execute(
+            f"SELECT s.folder_id, f.rel_path, f.sequence_id, f.order_index FROM sequence_frames f "
+            f"JOIN sequences s ON s.id = f.sequence_id WHERE s.folder_id IN ({marks})",
+            list(folder_ids),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {(r["folder_id"], r["rel_path"]): (r["sequence_id"], r["order_index"]) for r in rows}
+
+
+def _folder_file(
+    p: Path,
+    folder_id: str,
+    root: Path,
+    flags: dict[tuple[str, str], tuple[bool, bool]],
+    seqs: dict[tuple[str, str], tuple[str, int]] | None = None,
+) -> FolderFile:
+    key = (folder_id, p.relative_to(root).as_posix())
+    favorite, hidden = flags.get(key, (False, False))
+    seq = (seqs or {}).get(key)
+    return FolderFile(
+        path=str(p), name=p.name, is_gif=image_ops.is_gif(p), folder_id=folder_id,
+        favorite=favorite, hidden=hidden, sequence_id=seq[0] if seq else None,
+    )
+
+
+def _group_sequences(files: list[FolderFile], seqs: dict[tuple[str, str], tuple[str, int]], roots: dict[str, Path]) -> list[FolderFile]:
+    """Playlist: each sequence becomes one item at its first member's place (frames in sequence order).
+
+    Only members present in the list count (hidden ones are already gone); a
+    sequence left with fewer than 2 photos plays them as ordinary images.
+    """
+    order: dict[str, list[tuple[int, FolderFile]]] = {}
+    for f in files:
+        if f.sequence_id:
+            rel = Path(f.path).relative_to(roots[f.folder_id]).as_posix()
+            order.setdefault(f.sequence_id, []).append((seqs[(f.folder_id, rel)][1], f))
+    out: list[FolderFile] = []
+    emitted: set[str] = set()
+    for f in files:
+        members = order.get(f.sequence_id or "", [])
+        if len(members) < 2:
+            out.append(f.model_copy(update={"sequence_id": None}) if f.sequence_id else f)
+            continue
+        if f.sequence_id in emitted:
+            continue
+        emitted.add(f.sequence_id)
+        frames = [m.path for _, m in sorted(members, key=lambda x: x[0])]
+        out.append(f.model_copy(update={"path": frames[0], "name": Path(frames[0]).name, "frames": frames}))
+    return out
 
 
 def _row_to_out(row) -> FolderOut:
@@ -117,16 +203,16 @@ def list_folders():
 def add_folder(payload: AddFolderRequest):
     path = Path(payload.path)
     if not path.exists() or not path.is_dir():
-        raise HTTPException(status_code=400, detail="폴더를 찾을 수 없습니다")
+        raise HTTPException(status_code=400, detail="folder_path_not_found")
     if path.resolve().is_relative_to(db.CUSTOM_DIR.resolve()):
-        raise HTTPException(status_code=400, detail="커스텀 폴더는 따로 등록할 수 없습니다")
+        raise HTTPException(status_code=400, detail="custom_folder_not_linkable")
 
     conn = db.get_connection()
     try:
         existing = conn.execute("SELECT * FROM folders").fetchall()
         for r in existing:
             if Path(r["path"]).resolve() == path.resolve():
-                raise HTTPException(status_code=409, detail="이미 등록된 폴더입니다")
+                raise HTTPException(status_code=409, detail="folder_already_registered")
         next_order = (conn.execute("SELECT COALESCE(MAX(order_index), 0) AS m FROM folders").fetchone())["m"] + 1
         folder_id = str(uuid.uuid4())
         name = payload.name or path.name or str(path)
@@ -174,32 +260,149 @@ def list_files(folder_id: str, rel_path: str = "", recursive: bool = False):
         row = _get_row(conn, folder_id)
     finally:
         conn.close()
-    target = _resolve_in_root(Path(row["path"]), rel_path)
-    return [FolderFile(path=str(p), name=p.name, is_gif=image_ops.is_gif(p), folder_id=folder_id) for p in _iter_images(target, recursive)]
+    # includes hidden images (marked), so the library can show and un-hide them
+    root = Path(row["path"]).resolve()
+    target = _resolve_in_root(root, rel_path)
+    flags = _load_flags({folder_id})
+    seqs = _load_sequences({folder_id})
+    return [_folder_file(p, folder_id, root, flags, seqs) for p in _iter_images(target, recursive)]
 
 
 
 
 @router.post("/files", response_model=list[FolderFile])
 def list_selection_files(payload: FolderFilesRequest):
-    """여러 폴더 선택을 하나의 재생 목록으로 (선택 순서 → 폴더 트리 순서, 중복 제거)."""
+    """여러 폴더 선택을 하나의 재생 목록으로 (선택 순서 → 폴더 트리 순서, 중복 제거).
+
+    숨긴 이미지는 크로키 세션에서 제외하므로 목록에 넣지 않는다.
+    연속 재생 묶음은 항목 하나로 합친다 (frames에 묶음 사진들).
+    """
     conn = db.get_connection()
     try:
         rows = {r["id"]: r for r in conn.execute("SELECT * FROM folders").fetchall()}
     finally:
         conn.close()
 
+    folder_ids = {item.folder_id for item in payload.items if item.folder_id in rows}
+    flags = _load_flags(folder_ids)
+    seqs = _load_sequences(folder_ids)
+    roots = {fid: Path(rows[fid]["path"]).resolve() for fid in folder_ids}
     seen: set[str] = set()
     out: list[FolderFile] = []
     for item in payload.items:
         row = rows.get(item.folder_id)
         if row is None:
             continue
-        target = _resolve_in_root(Path(row["path"]), item.rel_path)
+        root = Path(row["path"]).resolve()
+        target = _resolve_in_root(root, item.rel_path)
         for p in _iter_images(target, item.recursive):
             key = str(p)
             if key in seen:
                 continue
             seen.add(key)
-            out.append(FolderFile(path=key, name=p.name, is_gif=image_ops.is_gif(p), folder_id=item.folder_id))
-    return out
+            f = _folder_file(p, item.folder_id, root, flags, seqs)
+            if not f.hidden:
+                out.append(f)
+    return _group_sequences(out, seqs, roots)
+
+
+@router.post("/{folder_id}/sequences", response_model=SequenceOut)
+def create_sequence(folder_id: str, payload: SequenceCreate):
+    """사진들을 연속 재생 묶음으로 저장 (주어진 순서대로).
+
+    이미 다른 묶음에 있던 사진은 그 묶음에서 빠지고, 2장 미만이 된 묶음은 지운다.
+    경로가 하나라도 폴더 밖이거나 GIF·이미지가 아니면 아무것도 바꾸지 않고 404.
+    """
+    conn = db.get_connection()
+    try:
+        row = _get_row(conn, folder_id)
+        root = Path(row["path"]).resolve()
+        rel_paths: list[str] = []
+        frames: list[str] = []
+        for path in payload.paths:
+            src = security.resolve_allowed(path)
+            if not src.is_relative_to(root) or not image_ops.is_image(src) or image_ops.is_gif(src):
+                raise HTTPException(status_code=404, detail="file not found")
+            rel = src.relative_to(root).as_posix()
+            if rel not in rel_paths:
+                rel_paths.append(rel)
+                frames.append(path)
+        if len(rel_paths) < 2:
+            raise HTTPException(status_code=400, detail="sequence_too_short")
+
+        marks = ",".join("?" * len(rel_paths))
+        conn.execute(
+            f"DELETE FROM sequence_frames WHERE rel_path IN ({marks}) "
+            "AND sequence_id IN (SELECT id FROM sequences WHERE folder_id = ?)",
+            [*rel_paths, folder_id],
+        )
+        conn.execute(
+            "DELETE FROM sequences WHERE folder_id = ? AND id NOT IN "
+            "(SELECT sequence_id FROM sequence_frames GROUP BY sequence_id HAVING COUNT(*) >= 2)",
+            (folder_id,),
+        )
+        seq_id = str(uuid.uuid4())
+        conn.execute("INSERT INTO sequences (id, folder_id, created_at) VALUES (?, ?, ?)", (seq_id, folder_id, datetime.now(timezone.utc).isoformat()))
+        conn.executemany(
+            "INSERT INTO sequence_frames (sequence_id, order_index, rel_path) VALUES (?, ?, ?)",
+            [(seq_id, i, rel) for i, rel in enumerate(rel_paths)],
+        )
+        conn.commit()
+        return SequenceOut(id=seq_id, frames=frames)
+    finally:
+        conn.close()
+
+
+@router.delete("/{folder_id}/sequences/{sequence_id}")
+def delete_sequence(folder_id: str, sequence_id: str):
+    """묶음 해제 (사진은 그대로)."""
+    conn = db.get_connection()
+    try:
+        _get_row(conn, folder_id)
+        deleted = conn.execute("DELETE FROM sequences WHERE id = ? AND folder_id = ?", (sequence_id, folder_id)).rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="sequence not found")
+    return {"ok": True}
+
+
+@router.put("/{folder_id}/flags", response_model=list[ImageFlags])
+def set_image_flags(folder_id: str, payload: ImageFlagsUpdate):
+    """즐겨찾기 / 숨김 표시 (한 장 또는 여러 장). 바꾸지 않은 값은 그대로 둔다.
+
+    경로가 하나라도 등록 폴더 밖이거나 이미지가 아니면 아무것도 바꾸지 않고 404.
+    """
+    conn = db.get_connection()
+    try:
+        row = _get_row(conn, folder_id)
+        root = Path(row["path"]).resolve()
+        targets: list[tuple[str, str]] = []  # (requested path, rel_path)
+        for path in payload.paths:
+            src = security.resolve_allowed(path)
+            if not src.is_relative_to(root) or not image_ops.is_image(src):
+                raise HTTPException(status_code=404, detail="file not found")
+            targets.append((path, src.relative_to(root).as_posix()))
+
+        out: list[ImageFlags] = []
+        for path, rel_path in targets:
+            current = conn.execute(
+                "SELECT favorite, hidden FROM image_flags WHERE folder_id = ? AND rel_path = ?", (folder_id, rel_path)
+            ).fetchone()
+            favorite = payload.favorite if payload.favorite is not None else bool(current and current["favorite"])
+            hidden = payload.hidden if payload.hidden is not None else bool(current and current["hidden"])
+            if favorite or hidden:
+                conn.execute(
+                    "INSERT INTO image_flags (folder_id, rel_path, favorite, hidden) VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT (folder_id, rel_path) DO UPDATE SET favorite = excluded.favorite, hidden = excluded.hidden",
+                    (folder_id, rel_path, int(favorite), int(hidden)),
+                )
+            else:
+                # no marks left: drop the row so the table only holds marked images
+                conn.execute("DELETE FROM image_flags WHERE folder_id = ? AND rel_path = ?", (folder_id, rel_path))
+            out.append(ImageFlags(path=path, favorite=favorite, hidden=hidden))
+        conn.commit()
+        return out
+    finally:
+        conn.close()
