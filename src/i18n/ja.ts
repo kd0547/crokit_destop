@@ -63,7 +63,12 @@ export const ja: Messages = {
   "folders.pickFromLibrary": "ライブラリから選ぶ",
   "folders.addFailed": "フォルダを追加できませんでした",
   "folders.added": (name, count) => `「${name}」を追加しました · ${count}枚`,
-  "folders.confirmRemove": (name) => `「${name}」をリストから削除しますか？\n（実際のファイルは削除されません）`,
+  "folders.removeTitle": "フォルダを一覧から削除しますか？",
+  "folders.removeDescription": "選択したフォルダをライブラリから削除します。",
+  "folders.removeFilesKept": "実際のフォルダと画像ファイルは削除されません。",
+  "folders.removeConfirm": "一覧から削除",
+  "folders.removing": "削除中…",
+  "folders.removeFailed": "フォルダを削除できませんでした。もう一度お試しください。",
   "folders.selectionMore": (first, more) => `${first} 他${more}件`,
 
   "history.empty": "まだ練習記録がありません。",

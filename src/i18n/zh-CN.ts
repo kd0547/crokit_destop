@@ -63,7 +63,12 @@ export const zhCN: Messages = {
   "folders.pickFromLibrary": "从图库中选择",
   "folders.addFailed": "无法添加文件夹",
   "folders.added": (name, count) => `已添加“${name}” · ${count}张`,
-  "folders.confirmRemove": (name) => `要从列表中移除“${name}”吗？\n（不会删除实际文件）`,
+  "folders.removeTitle": "要从列表中移除此文件夹吗？",
+  "folders.removeDescription": "所选文件夹将从图库中移除。",
+  "folders.removeFilesKept": "不会删除设备上的文件夹和图片文件。",
+  "folders.removeConfirm": "从列表中移除",
+  "folders.removing": "正在移除…",
+  "folders.removeFailed": "无法移除文件夹，请重试。",
   "folders.selectionMore": (first, more) => `${first} 等${more + 1}项`,
 
   "history.empty": "还没有练习记录。",

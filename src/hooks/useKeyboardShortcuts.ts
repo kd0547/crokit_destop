@@ -23,6 +23,7 @@ function currentIsGif(): boolean {
 export function useKeyboardShortcuts() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (document.querySelector("dialog[open]")) return;
       if (isTypingTarget(e.target)) return;
 
       const snapshot = useSessionStore.getState().snapshot;

@@ -66,7 +66,12 @@ export const en: Messages = {
   "folders.pickFromLibrary": "Choose from library",
   "folders.addFailed": "Couldn't add the folder",
   "folders.added": (name, count) => `Added '${name}' · ${images(count)}`,
-  "folders.confirmRemove": (name) => `Remove '${name}' from the list?\n(The files themselves won't be deleted.)`,
+  "folders.removeTitle": "Remove this folder from the library?",
+  "folders.removeDescription": "This folder will be removed from your library.",
+  "folders.removeFilesKept": "The folder and image files on your device will be kept.",
+  "folders.removeConfirm": "Remove from library",
+  "folders.removing": "Removing…",
+  "folders.removeFailed": "Couldn’t remove the folder. Please try again.",
   "folders.selectionMore": (first, more) => `${first} +${more}`,
 
   "history.empty": "No practice sessions yet.",

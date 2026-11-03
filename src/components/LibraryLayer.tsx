@@ -22,6 +22,7 @@ import {
 import { allNodeRefs, expandSelection, findNode, itemLabel, nodeKey, nodeTrail, selectedTotals, stateOf, type SelectState } from "@/lib/folderTree";
 import type { FolderFile, FolderInfo, FolderNode, FolderSelectionItem, ImageFlags } from "@/types";
 import { useT } from "@/i18n";
+import { FolderRemoveDialog } from "./FolderRemoveDialog";
 
 const CARD_SIZES = { small: 168, large: 236 } as const;
 type CardSize = keyof typeof CARD_SIZES;
@@ -44,6 +45,7 @@ export function LibraryLayer() {
   const [query, setQuery] = useState("");
   const [cardSize, setCardSize] = useState<CardSize>("large");
   const [scanning, setScanning] = useState(false);
+  const [removingFolder, setRemovingFolder] = useState<FolderInfo | null>(null);
   // photos picked with Ctrl/Shift+click in the open folder (see DirectImages)
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
 
@@ -69,6 +71,7 @@ export function LibraryLayer() {
   useEffect(() => {
     // capture phase so the global shortcuts (Esc = stop session, arrows = photo nav) don't also fire
     const onKeyDown = (e: KeyboardEvent) => {
+      if (document.querySelector("dialog[open]")) return;
       const typing = (e.target as HTMLElement | null)?.tagName === "INPUT";
       if (e.key === "Escape") {
         if (picked.size > 0) setPicked(new Set());
@@ -124,7 +127,7 @@ export function LibraryLayer() {
         <SectionTitle>{t("library.registered")}</SectionTitle>
         <div style={grid}>
           {folders.map((f) => (
-            <FolderCard key={f.id} folder={f} node={f.tree} state={stateOf(f.id, f.tree, totals)} onOpen={() => open(f, f.tree)} onRemove={running ? undefined : () => removeFolder(f.id)} />
+            <FolderCard key={f.id} folder={f} node={f.tree} state={stateOf(f.id, f.tree, totals)} onOpen={() => open(f, f.tree)} onRemove={running ? undefined : () => setRemovingFolder(f)} />
           ))}
           <button
             className="lib-card"
@@ -262,6 +265,13 @@ export function LibraryLayer() {
       </div>
 
       {folders.length > 0 && <Tray folders={folders} items={items} selectedCount={selectedCount} canStart={files.length > 0 && !running} />}
+      {removingFolder && (
+        <FolderRemoveDialog
+          folder={removingFolder}
+          onConfirm={() => removeFolder(removingFolder.id)}
+          onClose={() => setRemovingFolder(null)}
+        />
+      )}
     </div>
   );
 

@@ -54,12 +54,11 @@ export async function addFolderPath(path: string): Promise<void> {
   useUiStore.getState().showNotice(t("folders.added", folder.name, folder.count));
 }
 
+/** Remove a registration after the library's confirmation dialog is accepted. */
 export async function removeFolder(id: string): Promise<void> {
   const folderStore = useFolderStore.getState();
   const target = folderStore.folders.find((f) => f.id === id);
   if (!target) return;
-  if (!window.confirm(t("folders.confirmRemove", target.name))) return;
-
   await folderStore.removeFolder(id);
   const ui = useUiStore.getState();
   if (ui.libraryPath?.folderId === id) ui.setLibraryPath(null);

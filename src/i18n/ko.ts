@@ -71,7 +71,12 @@ export const ko = {
   "folders.pickFromLibrary": "라이브러리에서 고르기",
   "folders.addFailed": "폴더를 등록하지 못했습니다",
   "folders.added": (name: string, count: number) => `'${name}' 폴더를 등록했습니다 · ${count}장`,
-  "folders.confirmRemove": (name: string) => `'${name}' 폴더를 목록에서 삭제할까요?\n(실제 파일은 삭제되지 않습니다)`,
+  "folders.removeTitle": "폴더를 목록에서 삭제할까요?",
+  "folders.removeDescription": "선택한 폴더가 라이브러리에서 제거됩니다.",
+  "folders.removeFilesKept": "실제 폴더와 이미지 파일은 삭제되지 않습니다.",
+  "folders.removeConfirm": "목록에서 삭제",
+  "folders.removing": "삭제 중…",
+  "folders.removeFailed": "폴더를 삭제하지 못했습니다. 다시 시도해 주세요.",
   "folders.selectionMore": (first: string, more: number) => `${first} 외 ${more}개`,
 
   // history

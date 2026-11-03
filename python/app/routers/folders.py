@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,8 +30,17 @@ def _skip_dir(entry: os.DirEntry) -> bool:
     return not entry.is_dir(follow_symlinks=False)
 
 
+def _name_sort_key(path: Path) -> tuple[tuple[str | int, ...], str, str]:
+    """Case-insensitive name order, comparing numbers numerically (1, 2, 10)."""
+    name = path.name.casefold()
+    parts = re.split(r"([0-9]+)", name)
+    natural = tuple(int(part) if i % 2 else part for i, part in enumerate(parts))
+    # Keep equal numeric names (e.g. 01 and 1) deterministic across scans.
+    return natural, name, path.name
+
+
 def _list_dir(path: Path) -> tuple[list[Path], list[Path]]:
-    """(이미지 파일, 하위 폴더) -- 이름순(대소문자 무시)."""
+    """(이미지 파일, 하위 폴더) -- 자연스러운 이름순(대소문자 무시)."""
     files: list[Path] = []
     dirs: list[Path] = []
     try:
@@ -45,8 +55,7 @@ def _list_dir(path: Path) -> tuple[list[Path], list[Path]]:
                     continue
     except OSError:
         return [], []
-    key = lambda p: p.name.lower()
-    return sorted(files, key=key), sorted(dirs, key=key)
+    return sorted(files, key=_name_sort_key), sorted(dirs, key=_name_sort_key)
 
 
 def _iter_images(path: Path, recursive: bool, depth: int = 0) -> Iterator[Path]:
