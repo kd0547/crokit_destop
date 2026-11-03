@@ -227,33 +227,41 @@ def list_selection_files(payload: FolderFilesRequest):
     return out
 
 
-@router.put("/{folder_id}/flags", response_model=ImageFlags)
+@router.put("/{folder_id}/flags", response_model=list[ImageFlags])
 def set_image_flags(folder_id: str, payload: ImageFlagsUpdate):
-    """즐겨찾기 / 숨김 표시. 바꾸지 않은 값은 그대로 둔다."""
+    """즐겨찾기 / 숨김 표시 (한 장 또는 여러 장). 바꾸지 않은 값은 그대로 둔다.
+
+    경로가 하나라도 등록 폴더 밖이거나 이미지가 아니면 아무것도 바꾸지 않고 404.
+    """
     conn = db.get_connection()
     try:
         row = _get_row(conn, folder_id)
-        src = security.resolve_allowed(payload.path)
         root = Path(row["path"]).resolve()
-        if not src.is_relative_to(root) or not image_ops.is_image(src):
-            raise HTTPException(status_code=404, detail="file not found")
-        rel_path = src.relative_to(root).as_posix()
+        targets: list[tuple[str, str]] = []  # (requested path, rel_path)
+        for path in payload.paths:
+            src = security.resolve_allowed(path)
+            if not src.is_relative_to(root) or not image_ops.is_image(src):
+                raise HTTPException(status_code=404, detail="file not found")
+            targets.append((path, src.relative_to(root).as_posix()))
 
-        current = conn.execute(
-            "SELECT favorite, hidden FROM image_flags WHERE folder_id = ? AND rel_path = ?", (folder_id, rel_path)
-        ).fetchone()
-        favorite = payload.favorite if payload.favorite is not None else bool(current and current["favorite"])
-        hidden = payload.hidden if payload.hidden is not None else bool(current and current["hidden"])
-        if favorite or hidden:
-            conn.execute(
-                "INSERT INTO image_flags (folder_id, rel_path, favorite, hidden) VALUES (?, ?, ?, ?) "
-                "ON CONFLICT (folder_id, rel_path) DO UPDATE SET favorite = excluded.favorite, hidden = excluded.hidden",
-                (folder_id, rel_path, int(favorite), int(hidden)),
-            )
-        else:
-            # no marks left: drop the row so the table only holds marked images
-            conn.execute("DELETE FROM image_flags WHERE folder_id = ? AND rel_path = ?", (folder_id, rel_path))
+        out: list[ImageFlags] = []
+        for path, rel_path in targets:
+            current = conn.execute(
+                "SELECT favorite, hidden FROM image_flags WHERE folder_id = ? AND rel_path = ?", (folder_id, rel_path)
+            ).fetchone()
+            favorite = payload.favorite if payload.favorite is not None else bool(current and current["favorite"])
+            hidden = payload.hidden if payload.hidden is not None else bool(current and current["hidden"])
+            if favorite or hidden:
+                conn.execute(
+                    "INSERT INTO image_flags (folder_id, rel_path, favorite, hidden) VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT (folder_id, rel_path) DO UPDATE SET favorite = excluded.favorite, hidden = excluded.hidden",
+                    (folder_id, rel_path, int(favorite), int(hidden)),
+                )
+            else:
+                # no marks left: drop the row so the table only holds marked images
+                conn.execute("DELETE FROM image_flags WHERE folder_id = ? AND rel_path = ?", (folder_id, rel_path))
+            out.append(ImageFlags(path=path, favorite=favorite, hidden=hidden))
         conn.commit()
-        return ImageFlags(favorite=favorite, hidden=hidden)
+        return out
     finally:
         conn.close()

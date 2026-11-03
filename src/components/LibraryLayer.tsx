@@ -11,7 +11,7 @@ import {
   removeFolder,
   removeSelectionItem,
   rescanFolders,
-  setImageFlag,
+  setImageFlags,
   startSession,
   toggleFolderDirect,
   toggleFolderSelection,
@@ -41,6 +41,8 @@ export function LibraryLayer() {
   const [query, setQuery] = useState("");
   const [cardSize, setCardSize] = useState<CardSize>("large");
   const [scanning, setScanning] = useState(false);
+  // photos picked with Ctrl/Shift+click in the open folder (see DirectImages)
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
 
   const keys = useMemo(() => expandSelection(folders, items), [folders, items]);
   const totals = useMemo(() => selectedTotals(folders, keys), [folders, keys]);
@@ -66,7 +68,8 @@ export function LibraryLayer() {
     const onKeyDown = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement | null)?.tagName === "INPUT";
       if (e.key === "Escape") {
-        if (query) setQuery("");
+        if (picked.size > 0) setPicked(new Set());
+        else if (query) setQuery("");
         else setBrowsing(false);
       } else if (e.key === "Backspace" && !typing && libraryPath) goUp();
       else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
@@ -78,6 +81,9 @@ export function LibraryLayer() {
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   });
+
+  // a new folder (or search) starts with nothing picked
+  useEffect(() => setPicked(new Set()), [libraryPath?.folderId, libraryPath?.relPath, query]);
 
   const rescan = async () => {
     setScanning(true);
@@ -176,7 +182,7 @@ export function LibraryLayer() {
             </div>
           </>
         )}
-        {node.count > 0 && <DirectImages folder={folder} node={node} hasKids={hasKids} selected={keys.has(nodeKey(folder.id, node.rel_path))} files={files} />}
+        {node.count > 0 && <DirectImages folder={folder} node={node} hasKids={hasKids} selected={keys.has(nodeKey(folder.id, node.rel_path))} files={files} picked={picked} setPicked={setPicked} />}
         {node.total === 0 && <Empty>{t("library.noImagesHere")}</Empty>}
       </>
     );
@@ -483,15 +489,39 @@ function Highlight({ text, query }: { text: string; query?: string }) {
  * images directly inside the open folder; ones outside the current selection
  * are dimmed. Each tile has a favorite toggle (top left) and a hide toggle
  * (bottom right): hidden images are left out of practice sessions.
+ *
+ * Ctrl+click toggles a photo into a multi-selection, Shift+click adds a range;
+ * while anything is selected a plain click toggles too, and the bar above the
+ * grid applies favorite / hide to all selected photos at once. The selection
+ * itself lives in LibraryLayer so its Esc handler can clear it first.
  */
-function DirectImages({ folder, node, hasKids, selected, files }: { folder: FolderInfo; node: FolderNode; hasKids: boolean; selected: boolean; files: FolderFile[] }) {
+function DirectImages({
+  folder,
+  node,
+  hasKids,
+  selected,
+  files,
+  picked,
+  setPicked,
+}: {
+  folder: FolderInfo;
+  node: FolderNode;
+  hasKids: boolean;
+  selected: boolean;
+  files: FolderFile[];
+  picked: Set<string>;
+  setPicked: (paths: Set<string>) => void;
+}) {
   const [images, setImages] = useState<FolderFile[] | null>(null);
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const showNotice = useUiStore((s) => s.showNotice);
   const t = useT();
 
   useEffect(() => {
     let cancelled = false;
     setImages(null);
+    setAnchor(null);
     api
       .listFolderFiles(folder.id, node.rel_path)
       .then((list) => !cancelled && setImages(list))
@@ -502,20 +532,52 @@ function DirectImages({ folder, node, hasKids, selected, files }: { folder: Fold
   }, [folder.id, node.rel_path, node.count]);
 
   const indexByPath = useMemo(() => new Map(files.map((f, i) => [f.path, i])), [files]);
+  const list = images ?? [];
+  const pickedFiles = list.filter((f) => picked.has(f.path));
 
-  const patch = (path: string, fields: Partial<ImageFlags>) =>
-    setImages((list) => list && list.map((x) => (x.path === path ? { ...x, ...fields } : x)));
+  const patch = (results: { path: string; favorite: boolean; hidden: boolean }[]) => {
+    const byPath = new Map(results.map((r) => [r.path, r]));
+    setImages((cur) => cur && cur.map((x) => (byPath.has(x.path) ? { ...x, ...byPath.get(x.path) } : x)));
+  };
 
-  const toggle = async (f: FolderFile, flag: keyof ImageFlags) => {
-    const next = !f[flag];
-    patch(f.path, { [flag]: next }); // show it right away
+  /** set favorite / hidden on some photos; shown right away, rolled back if the request fails */
+  const apply = async (targets: FolderFile[], fields: Partial<ImageFlags>) => {
+    if (targets.length === 0) return;
+    const before = targets.map((f) => ({ path: f.path, favorite: f.favorite, hidden: f.hidden }));
+    patch(targets.map((f) => ({ path: f.path, favorite: fields.favorite ?? f.favorite, hidden: fields.hidden ?? f.hidden })));
+    setBusy(true);
     try {
-      const flags = await setImageFlag(f, flag, next);
-      if (flags) patch(f.path, flags);
-      if (flag === "hidden") showNotice(t(next ? "library.hiddenNotice" : "library.unhiddenNotice"));
+      patch(await setImageFlags(targets, fields));
+      if (fields.hidden !== undefined) showNotice(t(fields.hidden ? "library.hiddenNotice" : "library.unhiddenNotice"));
     } catch {
-      patch(f.path, { [flag]: !next });
+      patch(before);
+    } finally {
+      setBusy(false);
     }
+  };
+
+  const onTileClick = (e: React.MouseEvent | React.KeyboardEvent, f: FolderFile) => {
+    if (e.shiftKey && anchor) {
+      // range between the last clicked photo and this one, added to the selection
+      const a = list.findIndex((x) => x.path === anchor);
+      const b = list.findIndex((x) => x.path === f.path);
+      const [from, to] = a <= b ? [a, b] : [b, a];
+      setPicked(new Set([...picked, ...list.slice(from, to + 1).map((x) => x.path)]));
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.shiftKey || picked.size > 0) {
+      const next = new Set(picked);
+      if (next.has(f.path)) next.delete(f.path);
+      else next.add(f.path);
+      setPicked(next);
+      setAnchor(f.path);
+      return;
+    }
+    setAnchor(f.path);
+    const index = indexByPath.get(f.path);
+    if (f.hidden) showNotice(t("library.hiddenNotice"));
+    else if (index !== undefined) openInBrowsing(index);
+    else showNotice(t("library.onlyCheckedOpen"));
   };
 
   return (
@@ -523,25 +585,55 @@ function DirectImages({ folder, node, hasKids, selected, files }: { folder: Fold
       <SectionTitle lead={hasKids ? <SelectBox state={selected ? "all" : "none"} size={16} title={t("library.selectDirectOnly")} onClick={() => toggleFolderDirect(folder.id, node.rel_path)} /> : undefined}>
         {t("library.directImages", node.count, hasKids)}
       </SectionTitle>
+      {picked.size > 0 ? (
+        <div
+          style={{
+            position: "sticky",
+            top: -18,
+            zIndex: 2,
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 4,
+            margin: "0 0 10px",
+            padding: "6px 6px 6px 12px",
+            borderRadius: "var(--radius-md)",
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-accent-700)",
+            fontSize: 12,
+          }}
+        >
+          <span style={{ fontWeight: 500, color: "var(--color-accent-200)", marginRight: 6, fontVariantNumeric: "tabular-nums" }}>{t("library.pickedCount", picked.size)}</span>
+          <BulkButton icon="ph-fill ph-star" disabled={busy} onClick={() => apply(pickedFiles, { favorite: true })}>{t("library.favorite")}</BulkButton>
+          <BulkButton icon="ph ph-star" disabled={busy} onClick={() => apply(pickedFiles, { favorite: false })}>{t("library.unfavorite")}</BulkButton>
+          <BulkButton icon="ph-fill ph-eye-slash" disabled={busy} onClick={() => apply(pickedFiles, { hidden: true })}>{t("library.bulkHide")}</BulkButton>
+          <BulkButton icon="ph ph-eye" disabled={busy} onClick={() => apply(pickedFiles, { hidden: false })}>{t("library.unhide")}</BulkButton>
+          <span style={{ flex: 1 }} />
+          <BulkButton icon="ph ph-checks" disabled={busy || picked.size === list.length} onClick={() => setPicked(new Set(list.map((f) => f.path)))}>{t("library.selectAll")}</BulkButton>
+          <BulkButton icon="ph ph-x" onClick={() => setPicked(new Set())}>{t("library.deselect")}</BulkButton>
+        </div>
+      ) : (
+        list.length > 1 && <div style={{ margin: "-4px 0 10px", fontSize: 11, color: "var(--color-neutral-700)" }}>{t("library.multiSelectHint")}</div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(104px, 1fr))", gap: 8 }}>
-        {(images ?? []).map((f) => {
-          const index = indexByPath.get(f.path);
-          const inSelection = index !== undefined;
-          const open = () =>
-            f.hidden ? showNotice(t("library.hiddenNotice")) : inSelection ? openInBrowsing(index) : showNotice(t("library.onlyCheckedOpen"));
+        {list.map((f) => {
+          const inSelection = indexByPath.has(f.path);
+          const isPicked = picked.has(f.path);
           return (
             // a div, not a button: the tile holds the two toggle buttons
             <div
               key={f.path}
               role="button"
               tabIndex={0}
+              aria-selected={isPicked}
               className="lib-img"
               title={f.hidden ? t("library.hiddenTitle", f.name) : inSelection ? f.name : t("library.notSelected", f.name)}
-              onClick={open}
+              onClick={(e) => onTileClick(e, f)}
+              onMouseDown={(e) => e.shiftKey && e.preventDefault() /* no text selection on Shift+click */}
               onKeyDown={(e) => {
                 if (e.key !== "Enter") return;
                 e.preventDefault();
-                open();
+                onTileClick(e, f);
               }}
               style={{
                 position: "relative",
@@ -551,6 +643,7 @@ function DirectImages({ folder, node, hasKids, selected, files }: { folder: Fold
                 cursor: "pointer",
                 background: "linear-gradient(160deg,#1c1d27,#101118)",
                 border: "1px solid var(--color-divider)",
+                boxShadow: isPicked ? "inset 0 0 0 2px var(--color-accent)" : undefined,
               }}
             >
               <img
@@ -560,23 +653,29 @@ function DirectImages({ folder, node, hasKids, selected, files }: { folder: Fold
                 draggable={false}
                 style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: f.hidden ? 0.25 : inSelection ? 1 : 0.4, transition: "opacity .15s" }}
               />
+              {isPicked && <div style={{ position: "absolute", inset: 0, background: "color-mix(in srgb, var(--color-accent) 18%, transparent)", pointerEvents: "none" }} />}
               <ImageToggle
                 icon="ph-star"
                 active={f.favorite}
                 activeColor="#f2c94c"
                 title={f.favorite ? t("library.unfavorite") : t("library.favorite")}
-                onClick={() => toggle(f, "favorite")}
+                onClick={() => apply([f], { favorite: !f.favorite })}
                 style={{ top: 5, left: 5 }}
               />
               {f.is_gif && (
                 <span style={{ position: "absolute", top: 5, right: 5, fontSize: 9, letterSpacing: ".04em", padding: "2px 6px", borderRadius: 5, background: "var(--color-accent-800)", color: "var(--color-accent-100)", pointerEvents: "none" }}>GIF</span>
+              )}
+              {isPicked && (
+                <span style={{ position: "absolute", left: 5, bottom: 5, width: 20, height: 20, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--color-accent)", color: "#14121f", pointerEvents: "none" }}>
+                  <i className="ph-bold ph-check" style={{ fontSize: 12 }} />
+                </span>
               )}
               <ImageToggle
                 icon="ph-eye-slash"
                 active={f.hidden}
                 activeColor="var(--color-accent-300)"
                 title={f.hidden ? t("library.unhide") : t("library.hide")}
-                onClick={() => toggle(f, "hidden")}
+                onClick={() => apply([f], { hidden: !f.hidden })}
                 style={{ right: 5, bottom: 5 }}
               />
             </div>
@@ -584,6 +683,15 @@ function DirectImages({ folder, node, hasKids, selected, files }: { folder: Fold
         })}
       </div>
     </>
+  );
+}
+
+function BulkButton({ icon, disabled, onClick, children }: { icon: string; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button className="btn btn-ghost" disabled={disabled} onClick={onClick} style={{ flex: "none", height: 28, padding: "0 8px", fontSize: 12, gap: 5 }}>
+      <i className={icon} style={{ fontSize: 13 }} />
+      {children}
+    </button>
   );
 }
 

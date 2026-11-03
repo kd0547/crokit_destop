@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # UI language setting; the strings themselves live in the frontend (src/i18n)
 Language = Literal["system", "ko", "en", "ja", "zh-CN"]
@@ -127,12 +127,13 @@ class FolderFile(BaseModel):
 
 
 class ImageFlagsUpdate(BaseModel):
-    path: str                        # 이미지 절대경로 (등록 폴더 안이어야 함)
+    paths: list[str] = Field(min_length=1)  # 이미지 절대경로들 (모두 등록 폴더 안이어야 함)
     favorite: Optional[bool] = None
     hidden: Optional[bool] = None
 
 
 class ImageFlags(BaseModel):
+    path: str
     favorite: bool
     hidden: bool
 

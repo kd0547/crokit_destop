@@ -93,6 +93,11 @@ export interface ImageFlags {
   hidden: boolean;
 }
 
+/** flags after an update, per image */
+export interface ImageFlagsResult extends ImageFlags {
+  path: string;
+}
+
 export interface PracticeImage {
   order_index: number;
   folder_id: string | null;

@@ -1,4 +1,4 @@
-import type { FolderFile, FolderInfo, FolderSelectionItem, HistoryEntry, ImageFlags, Settings } from "@/types";
+import type { FolderFile, FolderInfo, FolderSelectionItem, HistoryEntry, ImageFlags, ImageFlagsResult, Settings } from "@/types";
 
 const base = () => window.crokit.apiBase;
 
@@ -69,9 +69,9 @@ export const api = {
   listFolderFiles: (id: string, relPath = "") => req<FolderFile[]>(`/folders/${id}/files?rel_path=${encodeURIComponent(relPath)}`),
   /** playlist for a multi-folder selection */
   listSelectionFiles: (items: FolderSelectionItem[]) => req<FolderFile[]>("/folders/files", { method: "POST", body: JSON.stringify({ items }) }),
-  /** favorite / hidden marks for one image; fields left out stay as they are */
-  setImageFlags: (folderId: string, path: string, flags: Partial<ImageFlags>) =>
-    req<ImageFlags>(`/folders/${encodeURIComponent(folderId)}/flags`, { method: "PUT", body: JSON.stringify({ path, ...flags }) }),
+  /** favorite / hidden marks for images in one folder; fields left out stay as they are */
+  setImageFlags: (folderId: string, paths: string[], flags: Partial<ImageFlags>) =>
+    req<ImageFlagsResult[]>(`/folders/${encodeURIComponent(folderId)}/flags`, { method: "PUT", body: JSON.stringify({ paths, ...flags }) }),
 
   getGifFrames: (path: string) => req<{ frames: string[] }>(`/gif/frames?path=${encodeURIComponent(path)}`),
 

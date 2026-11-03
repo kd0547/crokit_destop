@@ -1,7 +1,7 @@
 import { api, ApiError } from "@/api/client";
 import { t, type LanguageSetting, type MessageKey } from "@/i18n";
 import { compressSelection, expandSelection, findNode, nodeKey, selectedTotals, selectionLabel, setSubtree, stateOf } from "@/lib/folderTree";
-import type { FolderFile, FolderInfo, FolderSelectionItem, Hotkey, ImageFlags, PlaylistEntry, SessionConfig } from "@/types";
+import type { FolderFile, FolderInfo, FolderSelectionItem, Hotkey, ImageFlags, ImageFlagsResult, PlaylistEntry, SessionConfig } from "@/types";
 import { useFolderStore } from "./folderStore";
 import { useSettingsStore } from "./settingsStore";
 import { useSessionStore } from "./sessionStore";
@@ -175,14 +175,15 @@ export function browseStep(delta: number): void {
 }
 
 /**
- * Favorite or hide one library image. Hidden images are left out of the
- * practice playlist (the backend filters them), so hiding reloads the playlist.
+ * Favorite or hide library images (all from one folder). Hidden images are left
+ * out of the practice playlist (the backend filters them), so hiding reloads it.
  */
-export async function setImageFlag(file: FolderFile, flag: keyof ImageFlags, value: boolean): Promise<ImageFlags | null> {
-  if (!file.folder_id) return null;
-  const flags = await api.setImageFlags(file.folder_id, file.path, { [flag]: value });
+export async function setImageFlags(targets: FolderFile[], fields: Partial<ImageFlags>): Promise<ImageFlagsResult[]> {
+  const folderId = targets[0]?.folder_id;
+  if (!folderId) return [];
+  const results = await api.setImageFlags(folderId, targets.map((f) => f.path), fields);
   const store = useFolderStore.getState();
-  if (flag === "hidden") {
+  if (fields.hidden !== undefined) {
     // keep showing the same photo while browsing, if it's still in the playlist
     const ui = useUiStore.getState();
     const shown = store.files[ui.currentIndex]?.path;
@@ -191,9 +192,10 @@ export async function setImageFlag(file: FolderFile, flag: keyof ImageFlags, val
     const index = files.findIndex((f) => f.path === shown);
     ui.setCurrentIndex(index >= 0 ? index : Math.max(0, Math.min(ui.currentIndex, files.length - 1)), true);
   } else {
-    useFolderStore.setState({ files: store.files.map((f) => (f.path === file.path ? { ...f, ...flags } : f)) });
+    const byPath = new Map(results.map((r) => [r.path, r]));
+    useFolderStore.setState({ files: store.files.map((f) => (byPath.has(f.path) ? { ...f, ...byPath.get(f.path) } : f)) });
   }
-  return flags;
+  return results;
 }
 
 export function openInBrowsing(index: number): void {
