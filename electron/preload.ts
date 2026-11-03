@@ -1,9 +1,15 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
-const API_BASE = "http://127.0.0.1:58090";
+// main passes the backend address and token via webPreferences.additionalArguments
+// (both change every launch)
+function readArg(name: string): string {
+  const prefix = `--${name}=`;
+  return process.argv.find((a) => a.startsWith(prefix))?.slice(prefix.length) ?? "";
+}
 
 contextBridge.exposeInMainWorld("crokit", {
-  apiBase: API_BASE,
+  apiBase: readArg("crokit-api-base"),
+  apiToken: readArg("crokit-api-token"),
 
   window: {
     minimize: () => ipcRenderer.invoke("window:minimize"),

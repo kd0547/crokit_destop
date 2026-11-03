@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from .. import db
+from .. import db, security
 from ..models import AddHistoryRequest, HistoryEntry, PracticeImage
 from ..thumbnail import save_history_thumbnail
 
@@ -67,6 +67,13 @@ def add_history(payload: AddHistoryRequest):
     # 썸네일 생성은 자체 커넥션으로 thumbnails 캐시에 쓰므로, 세션 기록 트랜잭션을 열기 전에 끝낸다
     images: list[PracticeImage] = []
     for path in payload.images:
+        # only images inside registered folders: the saved thumbnail can be read
+        # back later, so an outside path would leak that file's contents
+        try:
+            security.resolve_allowed(path)
+        except HTTPException:
+            logger.warning("history image outside registered folders skipped: %s", path)
+            continue
         src = Path(path)
         folder_id, folder_root = find_root(src)
         try:

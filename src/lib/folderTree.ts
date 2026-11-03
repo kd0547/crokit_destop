@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import type { FolderInfo, FolderNode, FolderSelectionItem } from "@/types";
 
 /**
@@ -118,7 +119,7 @@ export function selectionLabel(folders: FolderInfo[], items: FolderSelectionItem
   if (items.length === 0) return "";
   const { parent, name } = itemLabel(folders, items[0]);
   const first = parent ? `${parent} › ${name}` : name;
-  return items.length > 1 ? `${first} 외 ${items.length - 1}개` : first;
+  return items.length > 1 ? t("folders.selectionMore", first, items.length - 1) : first;
 }
 
 /** every node across all folders, for search */

@@ -2,11 +2,34 @@ import { spawn, ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
+import { randomBytes } from "node:crypto";
 
-export const API_PORT = 58090;
-export const API_BASE = `http://127.0.0.1:${API_PORT}`;
+const API_HOST = "127.0.0.1";
+const START_ATTEMPTS = 3;
 
 let pythonProcess: ChildProcessWithoutNullStreams | null = null;
+let apiBase = "";
+
+/**
+ * Per-launch secret the backend requires on every request (python/app/security.py).
+ * Websites the user visits can reach 127.0.0.1 too; they can't know this.
+ */
+const apiToken = randomBytes(32).toString("base64url");
+
+/** Backend address for this run. Set by startPythonBackend; the port changes every launch. */
+export function getApiBase(): string {
+  return apiBase;
+}
+
+export function getApiToken(): string {
+  return apiToken;
+}
+
+/** Headers for the main process's own backend calls. */
+export function apiHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return { "X-Crokit-Token": apiToken, ...extra };
+}
 
 function resolvePythonRoot(appRoot: string): string {
   // Dev: <project>/python. Packaged: resources/python (see package.json extraResources).
@@ -27,49 +50,95 @@ function resolveFrozenBackend(): string | null {
   return fs.existsSync(exe) ? exe : null;
 }
 
-export function startPythonBackend(appRoot: string, dataDir: string): Promise<void> {
-  const env = { ...process.env, CROKIT_DATA_DIR: dataDir };
+/** Ask the OS for a free port. Another process could grab it before the backend binds, so the caller retries. */
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, API_HOST, () => {
+      const { port } = server.address() as net.AddressInfo;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function spawnBackend(appRoot: string, dataDir: string, port: number): ChildProcessWithoutNullStreams {
+  const env: NodeJS.ProcessEnv = { ...process.env, CROKIT_DATA_DIR: dataDir, CROKIT_TOKEN: apiToken };
+  // dev: the renderer is served by Vite, so its origin must pass the backend's CORS check
+  if (process.env.VITE_DEV_SERVER_URL) env.CROKIT_DEV_ORIGIN = new URL(process.env.VITE_DEV_SERVER_URL).origin;
+  const args = ["--port", String(port)];
   const frozen = resolveFrozenBackend();
 
   if (frozen) {
-    pythonProcess = spawn(frozen, ["--port", String(API_PORT)], { cwd: path.dirname(frozen), env, windowsHide: true });
-  } else {
-    const pythonRoot = resolvePythonRoot(appRoot);
-    const pythonExe = resolvePythonExe(pythonRoot);
-    pythonProcess = spawn(pythonExe, ["-m", "app.main", "--port", String(API_PORT)], { cwd: pythonRoot, env, windowsHide: true });
+    return spawn(frozen, args, { cwd: path.dirname(frozen), env, windowsHide: true });
   }
-
-  pythonProcess.stdout.on("data", (chunk) => console.log(`[python] ${chunk}`));
-  pythonProcess.stderr.on("data", (chunk) => console.error(`[python] ${chunk}`));
-  pythonProcess.on("error", (err) => {
-    console.error("Failed to start python backend:", err);
-  });
-  pythonProcess.on("exit", (code) => {
-    console.log(`python backend exited with code ${code}`);
-    pythonProcess = null;
-  });
-
-  return waitForHealth();
+  const pythonRoot = resolvePythonRoot(appRoot);
+  const pythonExe = resolvePythonExe(pythonRoot);
+  return spawn(pythonExe, ["-m", "app.main", ...args], { cwd: pythonRoot, env, windowsHide: true });
 }
 
-function waitForHealth(timeoutMs = 15000): Promise<void> {
+export async function startPythonBackend(appRoot: string, dataDir: string): Promise<void> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= START_ATTEMPTS; attempt++) {
+    const port = await findFreePort();
+    apiBase = `http://${API_HOST}:${port}`;
+
+    const proc = spawnBackend(appRoot, dataDir, port);
+    pythonProcess = proc;
+    proc.stdout.on("data", (chunk) => console.log(`[python] ${chunk}`));
+    proc.stderr.on("data", (chunk) => console.error(`[python] ${chunk}`));
+    // always keep an "error" listener: an unhandled one would crash the main process
+    proc.on("error", (err) => console.error("python backend process error:", err));
+    proc.on("exit", (code) => {
+      console.log(`python backend exited with code ${code}`);
+      if (pythonProcess === proc) pythonProcess = null;
+    });
+
+    try {
+      await waitForHealth(proc);
+      return;
+    } catch (err) {
+      lastError = err;
+      console.error(`python backend start attempt ${attempt} failed:`, err);
+      proc.kill();
+      if (pythonProcess === proc) pythonProcess = null;
+    }
+  }
+  throw lastError;
+}
+
+/** Resolves once /health answers. Rejects early if the process dies (e.g. the port was taken in the meantime). */
+function waitForHealth(proc: ChildProcessWithoutNullStreams, timeoutMs = 15000): Promise<void> {
   const start = Date.now();
   return new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (err?: Error) => {
+      if (done) return;
+      done = true;
+      proc.off("exit", onExit);
+      proc.off("error", onError);
+      if (err) reject(err);
+      else resolve();
+    };
+    const onExit = (code: number | null) => finish(new Error(`Python backend exited before becoming healthy (code ${code})`));
+    const onError = (err: Error) => finish(err);
+    proc.on("exit", onExit);
+    proc.on("error", onError);
+
     const tryOnce = () => {
-      const req = http.get(`${API_BASE}/health`, (res) => {
-        if (res.statusCode === 200) {
-          res.resume();
-          resolve();
-        } else {
-          res.resume();
-          retry();
-        }
+      if (done) return;
+      const req = http.get(`${apiBase}/health`, (res) => {
+        res.resume();
+        if (res.statusCode === 200) finish();
+        else retry();
       });
       req.on("error", retry);
     };
     const retry = () => {
+      if (done) return;
       if (Date.now() - start > timeoutMs) {
-        reject(new Error("Python backend did not become healthy in time"));
+        finish(new Error("Python backend did not become healthy in time"));
         return;
       }
       setTimeout(tryOnce, 250);

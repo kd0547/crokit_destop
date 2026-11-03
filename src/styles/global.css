@@ -139,3 +139,16 @@ input {
 .lib-img:hover {
   border-color: var(--color-accent-600) !important;
 }
+/* favorite / hide toggles on library image tiles */
+.lib-img .lib-img-toggle {
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s;
+}
+.lib-img:hover .lib-img-toggle,
+.lib-img .lib-img-toggle:focus-visible,
+.lib-img .lib-img-toggle.on {
+  opacity: 1;
+}
+.lib-img .lib-img-toggle:hover {
+  color: var(--color-text) !important;
+}

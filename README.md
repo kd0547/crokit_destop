@@ -17,7 +17,7 @@ npm run python:setup
 npm run dev
 ```
 
-Vite 개발 서버 + Electron(단일 창) + Python(FastAPI, `127.0.0.1:58090`)이 함께 기동됩니다.
+Vite 개발 서버 + Electron(단일 창) + Python(FastAPI, `127.0.0.1`의 빈 포트, 실행할 때마다 바뀜)이 함께 기동됩니다. 백엔드만 따로 띄우면(`python -m app.main`) 기본 포트 58090을 씁니다.
 
 ## 배포용 빌드
 

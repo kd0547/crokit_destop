@@ -1,11 +1,23 @@
-import type { FolderFile, FolderInfo, FolderSelectionItem, HistoryEntry, Settings } from "@/types";
+import type { FolderFile, FolderInfo, FolderSelectionItem, HistoryEntry, ImageFlags, Settings } from "@/types";
 
 const base = () => window.crokit.apiBase;
 
+/**
+ * Adds the per-launch token as ?t= for URLs loaded without fetch headers
+ * (<img src>, WebSocket). See python/app/security.py.
+ */
+export function withToken(url: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}t=${encodeURIComponent(window.crokit.apiToken)}`;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${base()}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Crokit-Token": window.crokit.apiToken,
+      ...(init?.headers as Record<string, string> | undefined),
+    },
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -35,15 +47,15 @@ function parseDetail(body: string): string | null {
 }
 
 export function fileUrl(absPath: string): string {
-  return `${base()}/files?path=${encodeURIComponent(absPath)}`;
+  return withToken(`${base()}/files?path=${encodeURIComponent(absPath)}`);
 }
 
 export function thumbUrl(folderId: string, absPath: string): string {
-  return `${base()}/thumbnail/file?folder_id=${encodeURIComponent(folderId)}&path=${encodeURIComponent(absPath)}`;
+  return withToken(`${base()}/thumbnail/file?folder_id=${encodeURIComponent(folderId)}&path=${encodeURIComponent(absPath)}`);
 }
 
 export function practiceThumbUrl(sessionId: string, orderIndex: number): string {
-  return `${base()}/history/${encodeURIComponent(sessionId)}/images/${orderIndex}/thumbnail`;
+  return withToken(`${base()}/history/${encodeURIComponent(sessionId)}/images/${orderIndex}/thumbnail`);
 }
 
 export const api = {
@@ -57,6 +69,9 @@ export const api = {
   listFolderFiles: (id: string, relPath = "") => req<FolderFile[]>(`/folders/${id}/files?rel_path=${encodeURIComponent(relPath)}`),
   /** playlist for a multi-folder selection */
   listSelectionFiles: (items: FolderSelectionItem[]) => req<FolderFile[]>("/folders/files", { method: "POST", body: JSON.stringify({ items }) }),
+  /** favorite / hidden marks for one image; fields left out stay as they are */
+  setImageFlags: (folderId: string, path: string, flags: Partial<ImageFlags>) =>
+    req<ImageFlags>(`/folders/${encodeURIComponent(folderId)}/flags`, { method: "PUT", body: JSON.stringify({ path, ...flags }) }),
 
   getGifFrames: (path: string) => req<{ frames: string[] }>(`/gif/frames?path=${encodeURIComponent(path)}`),
 

@@ -1,6 +1,7 @@
 import { api, ApiError } from "@/api/client";
+import { t, type LanguageSetting, type MessageKey } from "@/i18n";
 import { compressSelection, expandSelection, findNode, nodeKey, selectedTotals, selectionLabel, setSubtree, stateOf } from "@/lib/folderTree";
-import type { FolderInfo, FolderSelectionItem, Hotkey, PlaylistEntry, SessionConfig } from "@/types";
+import type { FolderFile, FolderInfo, FolderSelectionItem, Hotkey, ImageFlags, PlaylistEntry, SessionConfig } from "@/types";
 import { useFolderStore } from "./folderStore";
 import { useSettingsStore } from "./settingsStore";
 import { useSessionStore } from "./sessionStore";
@@ -43,21 +44,21 @@ export async function addFolderPath(path: string): Promise<void> {
   try {
     folder = await useFolderStore.getState().addFolder(path);
   } catch (err) {
-    useUiStore.getState().showNotice(err instanceof ApiError && err.detail ? err.detail : "폴더를 등록하지 못했습니다");
+    useUiStore.getState().showNotice(apiErrorMessage(err) ?? t("folders.addFailed"));
     return;
   }
   // first folder: select it right away so the start button works without a detour
   if (selectionItems().length === 0) await saveSelection([{ folder_id: folder.id, rel_path: "", recursive: true }]);
   useUiStore.getState().setLibraryPath({ folderId: folder.id, relPath: "" });
   useUiStore.getState().setBrowsing(true);
-  useUiStore.getState().showNotice(`'${folder.name}' 폴더를 등록했습니다 · ${folder.count}장`);
+  useUiStore.getState().showNotice(t("folders.added", folder.name, folder.count));
 }
 
 export async function removeFolder(id: string): Promise<void> {
   const folderStore = useFolderStore.getState();
   const target = folderStore.folders.find((f) => f.id === id);
   if (!target) return;
-  if (!window.confirm(`'${target.name}' 폴더를 목록에서 삭제할까요?\n(실제 파일은 삭제되지 않습니다)`)) return;
+  if (!window.confirm(t("folders.confirmRemove", target.name))) return;
 
   await folderStore.removeFolder(id);
   const ui = useUiStore.getState();
@@ -171,6 +172,28 @@ export function browseStep(delta: number): void {
   if (count === 0) return;
   const ui = useUiStore.getState();
   ui.setCurrentIndex((ui.currentIndex + delta + count) % count, true);
+}
+
+/**
+ * Favorite or hide one library image. Hidden images are left out of the
+ * practice playlist (the backend filters them), so hiding reloads the playlist.
+ */
+export async function setImageFlag(file: FolderFile, flag: keyof ImageFlags, value: boolean): Promise<ImageFlags | null> {
+  if (!file.folder_id) return null;
+  const flags = await api.setImageFlags(file.folder_id, file.path, { [flag]: value });
+  const store = useFolderStore.getState();
+  if (flag === "hidden") {
+    // keep showing the same photo while browsing, if it's still in the playlist
+    const ui = useUiStore.getState();
+    const shown = store.files[ui.currentIndex]?.path;
+    await store.fetchSelectionFiles(useSettingsStore.getState().settings?.folder_selection ?? []);
+    const files = useFolderStore.getState().files;
+    const index = files.findIndex((f) => f.path === shown);
+    ui.setCurrentIndex(index >= 0 ? index : Math.max(0, Math.min(ui.currentIndex, files.length - 1)), true);
+  } else {
+    useFolderStore.setState({ files: store.files.map((f) => (f.path === file.path ? { ...f, ...flags } : f)) });
+  }
+  return flags;
 }
 
 export function openInBrowsing(index: number): void {
@@ -335,6 +358,22 @@ export async function toggleSetting(key: BoolSettingKey): Promise<void> {
 
 export async function setFlipHotkey(hotkey: Hotkey | null): Promise<void> {
   await useSettingsStore.getState().updateSettings({ flip_hotkey: hotkey });
+}
+
+export async function setLanguage(language: LanguageSetting): Promise<void> {
+  await useSettingsStore.getState().updateSettings({ language });
+}
+
+// backend error codes the UI knows how to show (python/app routers send them as `detail`)
+const ERROR_KEYS: Record<string, MessageKey & `error.${string}`> = {
+  folder_path_not_found: "error.folder_path_not_found",
+  folder_already_registered: "error.folder_already_registered",
+  path_outside_folder: "error.path_outside_folder",
+};
+
+function apiErrorMessage(err: unknown): string | null {
+  const key = err instanceof ApiError && err.detail ? ERROR_KEYS[err.detail] : undefined;
+  return key ? (t as (k: MessageKey) => string)(key) : null;
 }
 
 export function previewGridStyle(hex: string, opacity: number): void {

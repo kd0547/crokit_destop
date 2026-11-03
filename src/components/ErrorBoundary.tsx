@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react";
+import { t } from "@/i18n";
 
 interface Props {
   children: ReactNode;
@@ -39,7 +40,7 @@ export class ErrorBoundary extends Component<Props, State> {
             textAlign: "center",
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 600 }}>문제가 발생했습니다</div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{t("error.title")}</div>
           <pre
             style={{
               whiteSpace: "pre-wrap",
@@ -55,7 +56,7 @@ export class ErrorBoundary extends Component<Props, State> {
             {String(this.state.error.message)}
           </pre>
           <button className="btn btn-primary" onClick={() => this.setState({ error: null })} style={{ marginTop: 4 }}>
-            다시 시도
+            {t("error.retry")}
           </button>
         </div>
       );

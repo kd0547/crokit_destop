@@ -5,7 +5,8 @@ import { HotkeyField } from "./HotkeyField";
 import { useSettingsStore } from "@/state/settingsStore";
 import { useSessionStore } from "@/state/sessionStore";
 import { useUiStore } from "@/state/uiStore";
-import { toggleAlwaysOnTop, toggleSetting, togglePanel, previewGridStyle, commitGridStyle, previewGridDivisions, commitGridDivisions, setFlipHotkey } from "@/state/actions";
+import { toggleAlwaysOnTop, toggleSetting, togglePanel, previewGridStyle, commitGridStyle, previewGridDivisions, commitGridDivisions, setFlipHotkey, setLanguage } from "@/state/actions";
+import { LANGUAGES, systemLocale, useT } from "@/i18n";
 import type { Settings } from "@/types";
 
 interface MenuDef {
@@ -22,6 +23,7 @@ function GridSettingsControl({ settings }: { settings: Settings }) {
   const [pos, setPos] = useState({ left: 0, top: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const t = useT();
 
   useEffect(() => {
     if (!open) return;
@@ -46,7 +48,7 @@ function GridSettingsControl({ settings }: { settings: Settings }) {
       <button
         ref={btnRef}
         className="no-drag"
-        title="그리드 사용자 설정"
+        title={t("grid.custom")}
         onClick={(e) => {
           e.stopPropagation();
           if (!open && btnRef.current) {
@@ -102,12 +104,13 @@ function GridSettingsControl({ settings }: { settings: Settings }) {
 }
 
 function FlipHotkeyRow({ value }: { value: Settings["flip_hotkey"] }) {
+  const t = useT();
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 30, padding: "4px 6px 4px 10px" }}>
       <i className="ph ph-keyboard" style={{ width: 14, fontSize: 13, color: "var(--color-neutral-500)" }} />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
-        <span style={{ font: "400 12px var(--font-body)", color: "var(--color-text)" }}>좌우 반전 단축키</span>
-        <span style={{ fontSize: 10, color: "var(--color-neutral-600)" }}>다른 프로그램 사용 중에도 동작</span>
+        <span style={{ font: "400 12px var(--font-body)", color: "var(--color-text)" }}>{t("hotkey.flip")}</span>
+        <span style={{ fontSize: 10, color: "var(--color-neutral-600)" }}>{t("hotkey.flipHint")}</span>
       </div>
       <HotkeyField value={value} onChange={setFlipHotkey} />
     </div>
@@ -165,36 +168,39 @@ export function TopBar() {
   const menuOpen = useUiStore((s) => s.menuOpen);
   const browsing = useUiStore((s) => s.browsing);
   const setBrowsing = useUiStore((s) => s.setBrowsing);
+  const t = useT();
+  const language = settings?.language ?? "system";
+  const systemLanguageName = LANGUAGES.find((l) => l.id === systemLocale())?.name ?? "";
 
   const showBack = snapshot.state === "idle" && !browsing;
   const windowTitle =
     snapshot.state !== "idle"
       ? `${snapshot.folderName} — ${snapshot.shownCount}${snapshot.totalCount ? " / " + snapshot.totalCount : ""}`
-      : "크로키";
+      : t("app.name");
 
   const menus: MenuDef[] = [
     {
       key: "file",
-      label: "파일",
-      entries: [{ label: "종료", hint: "Alt+F4", onClick: () => window.crokit.window.close() }],
+      label: t("menu.file"),
+      entries: [{ label: t("menu.quit"), hint: "Alt+F4", onClick: () => window.crokit.window.close() }],
     },
     {
       key: "view",
-      label: "보기",
+      label: t("menu.view"),
       entries: [
-        { label: "왼쪽 패널", hint: "[", checked: !!settings?.panel_open, onClick: () => togglePanel() },
-        { label: "전체화면", hint: "F11", onClick: () => window.crokit.window.toggleFullscreen() },
-        { label: "항상 위에 표시", checked: !!settings?.always_on_top, onClick: () => toggleAlwaysOnTop() },
+        { label: t("menu.leftPanel"), hint: "[", checked: !!settings?.panel_open, onClick: () => togglePanel() },
+        { label: t("menu.fullscreen"), hint: "F11", onClick: () => window.crokit.window.toggleFullscreen() },
+        { label: t("menu.alwaysOnTop"), checked: !!settings?.always_on_top, onClick: () => toggleAlwaysOnTop() },
       ],
     },
     {
       key: "image",
-      label: "이미지",
+      label: t("menu.image"),
       entries: [
-        { label: "흑백", hint: "G", checked: !!settings?.gray, onClick: () => toggleSetting("gray") },
-        { label: "좌우 반전", hint: "H", checked: !!settings?.flip, onClick: () => toggleSetting("flip") },
+        { label: t("menu.gray"), hint: "G", checked: !!settings?.gray, onClick: () => toggleSetting("gray") },
+        { label: t("menu.flip"), hint: "H", checked: !!settings?.flip, onClick: () => toggleSetting("flip") },
         {
-          label: "그리드 사용자 설정",
+          label: t("grid.custom"),
           hint: "#",
           checked: !!settings?.grid,
           onClick: () => toggleSetting("grid"),
@@ -204,15 +210,19 @@ export function TopBar() {
     },
     {
       key: "settings",
-      label: "설정",
+      label: t("menu.settings"),
       width: 260,
       entries: [
-        { label: "시작 시 패널 숨기기", checked: !!settings?.auto_hide, onClick: () => toggleSetting("auto_hide") },
-        { label: "타이머 소리", checked: !!settings?.sound, onClick: () => toggleSetting("sound") },
-        { label: "관찰 시간 사용", checked: !!settings?.observe_enabled, onClick: () => toggleSetting("observe_enabled") },
-        { label: "휴식 간격 사용", checked: !!settings?.breaks_enabled, onClick: () => toggleSetting("breaks_enabled") },
+        { label: t("menu.autoHide"), checked: !!settings?.auto_hide, onClick: () => toggleSetting("auto_hide") },
+        { label: t("menu.sound"), checked: !!settings?.sound, onClick: () => toggleSetting("sound") },
+        { label: t("menu.observe"), checked: !!settings?.observe_enabled, onClick: () => toggleSetting("observe_enabled") },
+        { label: t("menu.breaks"), checked: !!settings?.breaks_enabled, onClick: () => toggleSetting("breaks_enabled") },
         "separator",
         { custom: <FlipHotkeyRow value={settings?.flip_hotkey ?? null} /> },
+        "separator",
+        { custom: <MenuHeading icon="ph-translate">{t("menu.language")}</MenuHeading> },
+        { label: `${t("menu.languageSystem")} · ${systemLanguageName}`, checked: language === "system", onClick: () => setLanguage("system") },
+        ...LANGUAGES.map((l) => ({ label: l.name, checked: language === l.id, onClick: () => setLanguage(l.id) })),
       ],
     },
   ];
@@ -236,7 +246,7 @@ export function TopBar() {
         {!settings?.panel_open && (
           <button
             className="btn btn-ghost btn-icon no-drag"
-            title="패널 열기 ( [ )"
+            title={t("topbar.openPanel")}
             onClick={() => togglePanel()}
             style={{ width: 26, height: 26, marginRight: 4, color: "var(--color-neutral-400)" }}
           >
@@ -258,25 +268,34 @@ export function TopBar() {
         <button
           className="btn btn-ghost no-drag"
           onClick={() => setBrowsing(true)}
-          title="폴더 라이브러리"
+          title={t("library.folderLibrary")}
           style={{ height: 24, padding: "0 8px", gap: 5, fontSize: 12, marginRight: 6, color: "var(--color-neutral-400)" }}
         >
           <i className="ph ph-squares-four" style={{ fontSize: 13 }} />
-          라이브러리
+          {t("library.title")}
         </button>
       )}
 
       <div style={{ width: 184, height: "100%", display: "flex", justifyContent: "flex-end" }}>
         <WindowButton
           icon={settings?.always_on_top ? "ph-fill ph-push-pin" : "ph ph-push-pin"}
-          title={settings?.always_on_top ? "항상 위 해제" : "항상 위에 표시"}
+          title={settings?.always_on_top ? t("topbar.unpin") : t("menu.alwaysOnTop")}
           active={!!settings?.always_on_top}
           onClick={() => toggleAlwaysOnTop()}
         />
-        <WindowButton icon="ph-minus" title="최소화" onClick={() => window.crokit.window.minimize()} />
-        <WindowButton icon="ph-corners-out" title="전체화면" onClick={() => window.crokit.window.toggleFullscreen()} />
-        <WindowButton icon="ph-x" title="닫기" danger onClick={() => window.crokit.window.close()} />
+        <WindowButton icon="ph-minus" title={t("topbar.minimize")} onClick={() => window.crokit.window.minimize()} />
+        <WindowButton icon="ph-corners-out" title={t("topbar.fullscreen")} onClick={() => window.crokit.window.toggleFullscreen()} />
+        <WindowButton icon="ph-x" title={t("common.close")} danger onClick={() => window.crokit.window.close()} />
       </div>
+    </div>
+  );
+}
+
+function MenuHeading({ icon, children }: { icon: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px 4px", fontSize: 11, color: "var(--color-neutral-600)" }}>
+      <i className={`ph ${icon}`} style={{ width: 14, fontSize: 13 }} />
+      {children}
     </div>
   );
 }

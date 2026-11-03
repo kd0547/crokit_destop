@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from .. import db, image_ops
+from .. import db, image_ops, security
 from ..thumbnail import get_or_create_thumbnail, thumbnail
 
 router = APIRouter(prefix="/thumbnail", tags=["folders"])
@@ -30,8 +30,9 @@ def create_thumbnail(folder_id: str):
 @router.get("/file")
 def get_thumbnail(folder_id: str, path: str):
     folder = _get_folder(folder_id)
-    src = Path(path)
-    if not src.is_file() or not image_ops.is_image(src):
+    # check the path before touching the disk, so outside files can't be probed
+    src = security.resolve_allowed(path)
+    if not image_ops.is_image(src):
         raise HTTPException(status_code=404, detail="file not found")
 
     try:

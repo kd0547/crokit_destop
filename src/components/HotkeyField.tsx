@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { setHotkeyCapturing } from "@/hooks/useFlipHotkey";
 import type { Hotkey } from "@/types";
+import { useT } from "@/i18n";
 
 const MODIFIER_KEYS = new Set(["Control", "Alt", "Shift", "Meta", "OS", "AltGraph", "CapsLock", "NumLock", "ScrollLock"]);
 
@@ -27,6 +28,7 @@ function toHotkey(e: KeyboardEvent): Hotkey {
 /** Click, then press a key (optionally with Ctrl/Alt/Shift) to record it. Esc cancels. */
 export function HotkeyField({ value, onChange }: { value: Hotkey | null; onChange: (hk: Hotkey | null) => void }) {
   const [capturing, setCapturing] = useState(false);
+  const t = useT();
 
   useEffect(() => {
     if (!capturing) return;
@@ -58,7 +60,7 @@ export function HotkeyField({ value, onChange }: { value: Hotkey | null; onChang
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <button
         onClick={() => setCapturing((v) => !v)}
-        title={capturing ? "등록할 키를 누르세요 (Esc 취소)" : "클릭한 뒤 키를 누르면 등록됩니다"}
+        title={capturing ? t("hotkey.capturing") : t("hotkey.clickToSet")}
         style={{
           minWidth: 76,
           height: 24,
@@ -70,12 +72,12 @@ export function HotkeyField({ value, onChange }: { value: Hotkey | null; onChang
           color: capturing ? "var(--color-accent-300)" : value ? "var(--color-text)" : "var(--color-neutral-600)",
         }}
       >
-        {capturing ? "키 입력…" : value?.label ?? "없음"}
+        {capturing ? t("hotkey.pressKey") : value?.label ?? t("hotkey.none")}
       </button>
       {value && !capturing && (
         <button
           onClick={() => onChange(null)}
-          title="단축키 지우기"
+          title={t("hotkey.clear")}
           style={{ width: 20, height: 24, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-neutral-600)" }}
         >
           <i className="ph ph-x" style={{ fontSize: 11 }} />

@@ -7,11 +7,14 @@ from typing import Iterator
 
 from fastapi import APIRouter, HTTPException
 
-from .. import db, image_ops
-from ..models import AddFolderRequest, FolderFile, FolderFilesRequest, FolderNode, FolderOut
+from .. import db, image_ops, security
+from ..models import AddFolderRequest, FolderFile, FolderFilesRequest, FolderNode, FolderOut, ImageFlags, ImageFlagsUpdate
 from ..thumbnail import delete_folder_thumbnails
 
 router = APIRouter(prefix="/folders", tags=["folders"])
+
+# Error `detail`s shown to the user are codes; the frontend translates them
+# (src/i18n, keys "error.<code>").
 
 SAMPLE_COUNT = 3
 MAX_DEPTH = 16  # 심볼릭 링크/정션 외의 비정상적으로 깊은 구조 방어용
@@ -84,8 +87,28 @@ def _resolve_in_root(root: Path, rel_path: str) -> Path:
     try:
         target.relative_to(root.resolve())
     except ValueError:
-        raise HTTPException(status_code=400, detail="등록 폴더 밖의 경로입니다")
+        raise HTTPException(status_code=400, detail="path_outside_folder")
     return target
+
+
+def _load_flags(folder_ids: set[str]) -> dict[tuple[str, str], tuple[bool, bool]]:
+    """(folder_id, rel_path) -> (favorite, hidden) for images that have any mark."""
+    if not folder_ids:
+        return {}
+    conn = db.get_connection()
+    try:
+        marks = ",".join("?" * len(folder_ids))
+        rows = conn.execute(
+            f"SELECT folder_id, rel_path, favorite, hidden FROM image_flags WHERE folder_id IN ({marks})", list(folder_ids)
+        ).fetchall()
+    finally:
+        conn.close()
+    return {(r["folder_id"], r["rel_path"]): (bool(r["favorite"]), bool(r["hidden"])) for r in rows}
+
+
+def _folder_file(p: Path, folder_id: str, root: Path, flags: dict[tuple[str, str], tuple[bool, bool]]) -> FolderFile:
+    favorite, hidden = flags.get((folder_id, p.relative_to(root).as_posix()), (False, False))
+    return FolderFile(path=str(p), name=p.name, is_gif=image_ops.is_gif(p), folder_id=folder_id, favorite=favorite, hidden=hidden)
 
 
 def _row_to_out(row) -> FolderOut:
@@ -116,14 +139,14 @@ def list_folders():
 def add_folder(payload: AddFolderRequest):
     path = Path(payload.path)
     if not path.exists() or not path.is_dir():
-        raise HTTPException(status_code=400, detail="폴더를 찾을 수 없습니다")
+        raise HTTPException(status_code=400, detail="folder_path_not_found")
 
     conn = db.get_connection()
     try:
         existing = conn.execute("SELECT * FROM folders").fetchall()
         for r in existing:
             if Path(r["path"]).resolve() == path.resolve():
-                raise HTTPException(status_code=409, detail="이미 등록된 폴더입니다")
+                raise HTTPException(status_code=409, detail="folder_already_registered")
         next_order = (conn.execute("SELECT COALESCE(MAX(order_index), 0) AS m FROM folders").fetchone())["m"] + 1
         folder_id = str(uuid.uuid4())
         name = payload.name or path.name or str(path)
@@ -165,30 +188,72 @@ def list_files(folder_id: str, rel_path: str = "", recursive: bool = False):
         row = _get_row(conn, folder_id)
     finally:
         conn.close()
-    target = _resolve_in_root(Path(row["path"]), rel_path)
-    return [FolderFile(path=str(p), name=p.name, is_gif=image_ops.is_gif(p), folder_id=folder_id) for p in _iter_images(target, recursive)]
+    # includes hidden images (marked), so the library can show and un-hide them
+    root = Path(row["path"]).resolve()
+    target = _resolve_in_root(root, rel_path)
+    flags = _load_flags({folder_id})
+    return [_folder_file(p, folder_id, root, flags) for p in _iter_images(target, recursive)]
 
 
 @router.post("/files", response_model=list[FolderFile])
 def list_selection_files(payload: FolderFilesRequest):
-    """여러 폴더 선택을 하나의 재생 목록으로 (선택 순서 → 폴더 트리 순서, 중복 제거)."""
+    """여러 폴더 선택을 하나의 재생 목록으로 (선택 순서 → 폴더 트리 순서, 중복 제거).
+
+    숨긴 이미지는 크로키 세션에서 제외하므로 목록에 넣지 않는다.
+    """
     conn = db.get_connection()
     try:
         rows = {r["id"]: r for r in conn.execute("SELECT * FROM folders").fetchall()}
     finally:
         conn.close()
 
+    flags = _load_flags({item.folder_id for item in payload.items if item.folder_id in rows})
     seen: set[str] = set()
     out: list[FolderFile] = []
     for item in payload.items:
         row = rows.get(item.folder_id)
         if row is None:
             continue
-        target = _resolve_in_root(Path(row["path"]), item.rel_path)
+        root = Path(row["path"]).resolve()
+        target = _resolve_in_root(root, item.rel_path)
         for p in _iter_images(target, item.recursive):
             key = str(p)
             if key in seen:
                 continue
             seen.add(key)
-            out.append(FolderFile(path=key, name=p.name, is_gif=image_ops.is_gif(p), folder_id=item.folder_id))
+            f = _folder_file(p, item.folder_id, root, flags)
+            if not f.hidden:
+                out.append(f)
     return out
+
+
+@router.put("/{folder_id}/flags", response_model=ImageFlags)
+def set_image_flags(folder_id: str, payload: ImageFlagsUpdate):
+    """즐겨찾기 / 숨김 표시. 바꾸지 않은 값은 그대로 둔다."""
+    conn = db.get_connection()
+    try:
+        row = _get_row(conn, folder_id)
+        src = security.resolve_allowed(payload.path)
+        root = Path(row["path"]).resolve()
+        if not src.is_relative_to(root) or not image_ops.is_image(src):
+            raise HTTPException(status_code=404, detail="file not found")
+        rel_path = src.relative_to(root).as_posix()
+
+        current = conn.execute(
+            "SELECT favorite, hidden FROM image_flags WHERE folder_id = ? AND rel_path = ?", (folder_id, rel_path)
+        ).fetchone()
+        favorite = payload.favorite if payload.favorite is not None else bool(current and current["favorite"])
+        hidden = payload.hidden if payload.hidden is not None else bool(current and current["hidden"])
+        if favorite or hidden:
+            conn.execute(
+                "INSERT INTO image_flags (folder_id, rel_path, favorite, hidden) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (folder_id, rel_path) DO UPDATE SET favorite = excluded.favorite, hidden = excluded.hidden",
+                (folder_id, rel_path, int(favorite), int(hidden)),
+            )
+        else:
+            # no marks left: drop the row so the table only holds marked images
+            conn.execute("DELETE FROM image_flags WHERE folder_id = ? AND rel_path = ?", (folder_id, rel_path))
+        conn.commit()
+        return ImageFlags(favorite=favorite, hidden=hidden)
+    finally:
+        conn.close()

@@ -1,6 +1,9 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
+
+# UI language setting; the strings themselves live in the frontend (src/i18n)
+Language = Literal["system", "ko", "en", "ja", "zh-CN"]
 
 
 class DurationPreset(BaseModel):
@@ -56,6 +59,7 @@ class SettingsOut(BaseModel):
     current_folder_id: Optional[str]
     folder_selection: list[FolderSelectionItem] = []
     flip_hotkey: Optional[Hotkey] = None
+    language: Language = "system"
 
 
 class SettingsUpdate(BaseModel):
@@ -87,6 +91,7 @@ class SettingsUpdate(BaseModel):
     current_folder_id: Optional[str] = None
     folder_selection: Optional[list[FolderSelectionItem]] = None
     flip_hotkey: Optional[Hotkey] = None
+    language: Optional[Language] = None
 
 
 class FolderNode(BaseModel):
@@ -117,6 +122,19 @@ class FolderFile(BaseModel):
     name: str
     is_gif: bool
     folder_id: Optional[str] = None  # 이 파일이 속한 등록 폴더 (썸네일 조회용)
+    favorite: bool = False
+    hidden: bool = False             # 크로키 세션에서 제외 (재생 목록에는 아예 빠짐)
+
+
+class ImageFlagsUpdate(BaseModel):
+    path: str                        # 이미지 절대경로 (등록 폴더 안이어야 함)
+    favorite: Optional[bool] = None
+    hidden: Optional[bool] = None
+
+
+class ImageFlags(BaseModel):
+    favorite: bool
+    hidden: bool
 
 
 class FolderFilesRequest(BaseModel):

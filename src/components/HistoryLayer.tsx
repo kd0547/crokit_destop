@@ -6,11 +6,13 @@ import { useUiStore } from "@/state/uiStore";
 import { durLabel, formatDateLabel, formatTimeLabel } from "@/lib/format";
 import type { HistoryEntry } from "@/types";
 import { MenuList } from "./Menu";
+import { useT } from "@/i18n";
 
 const MENU_WIDTH = 180;
 
 /** Stage overlay for a history session: image list (index null) or a single image. */
 export function HistoryLayer() {
+  const t = useT();
   const view = useUiStore((s) => s.historyView);
   const setHistoryView = useUiStore((s) => s.setHistoryView);
   const entry = useHistoryStore((s) => s.entries.find((e) => e.id === view?.entryId));
@@ -34,9 +36,9 @@ export function HistoryLayer() {
     const img = entry.images[i];
     try {
       const used = await copyImageToClipboard([fileUrl(img.source_path), practiceThumbUrl(entry.id, img.order_index)]);
-      setNotice(used === 0 ? "이미지를 클립보드에 복사했습니다" : "원본이 없어 썸네일을 복사했습니다");
+      setNotice(used === 0 ? t("history.copied") : t("history.copiedThumbnail"));
     } catch {
-      setNotice("이미지를 복사하지 못했습니다");
+      setNotice(t("history.copyFailed"));
     }
   };
 
@@ -69,7 +71,7 @@ export function HistoryLayer() {
         {index === null ? (
           <i className="ph ph-clock-counter-clockwise" style={{ fontSize: 18, color: "var(--color-accent)" }} />
         ) : (
-          <button className="btn btn-ghost btn-icon" title="목록 (Esc)" onClick={() => setHistoryView({ entryId: entry.id, index: null })} style={{ width: 30, height: 30, marginLeft: -6 }}>
+          <button className="btn btn-ghost btn-icon" title={t("history.backToList")} onClick={() => setHistoryView({ entryId: entry.id, index: null })} style={{ width: 30, height: 30, marginLeft: -6 }}>
             <i className="ph ph-arrow-left" style={{ fontSize: 16 }} />
           </button>
         )}
@@ -78,10 +80,10 @@ export function HistoryLayer() {
             {formatDateLabel(entry.created_at)} <span style={{ fontWeight: 400, color: "var(--color-neutral-500)" }}>{formatTimeLabel(entry.created_at)}</span>
           </div>
           <div style={{ fontSize: 11, color: "var(--color-neutral-600)" }}>
-            {entry.folder_name} · {durLabel(entry.duration_seconds)} × {entry.images_count}장 · {entry.minutes}분
+            {entry.folder_name} · {t("history.summary", durLabel(entry.duration_seconds), entry.images_count, entry.minutes)}
           </div>
         </div>
-        <button className="btn btn-ghost btn-icon" title="닫기" onClick={() => setHistoryView(null)} style={{ width: 30, height: 30 }}>
+        <button className="btn btn-ghost btn-icon" title={t("common.close")} onClick={() => setHistoryView(null)} style={{ width: 30, height: 30 }}>
           <i className="ph ph-x" style={{ fontSize: 16 }} />
         </button>
       </div>
@@ -94,7 +96,7 @@ export function HistoryLayer() {
 
       {menu && (
         <MenuList
-          entries={[{ label: "이미지 복사", hint: "클립보드", onClick: () => copyImage(menu.index) }]}
+          entries={[{ label: t("history.copyImage"), hint: t("history.clipboard"), onClick: () => copyImage(menu.index) }]}
           onClose={closeMenu}
           width={MENU_WIDTH}
           style={{ left: Math.min(menu.x, window.innerWidth - MENU_WIDTH - 8), top: Math.min(menu.y, window.innerHeight - 56) }}
@@ -125,9 +127,10 @@ export function HistoryLayer() {
 
 function ImageList({ entry, onContextMenu }: { entry: HistoryEntry; onContextMenu: (x: number, y: number, index: number) => void }) {
   const setHistoryView = useUiStore((s) => s.setHistoryView);
+  const t = useT();
 
   if (entry.images.length === 0) {
-    return <div style={{ color: "var(--color-neutral-700)", fontSize: 12.5, padding: "20px" }}>이 기록에는 저장된 이미지가 없습니다.</div>;
+    return <div style={{ color: "var(--color-neutral-700)", fontSize: 12.5, padding: "20px" }}>{t("history.noImages")}</div>;
   }
 
   return (
@@ -159,6 +162,7 @@ function ImageList({ entry, onContextMenu }: { entry: HistoryEntry; onContextMen
 
 function ImageView({ entry, index }: { entry: HistoryEntry; index: number }) {
   const setHistoryView = useUiStore((s) => s.setHistoryView);
+  const t = useT();
   const img = entry.images[index];
   const [missing, setMissing] = useState(false);
 
@@ -178,15 +182,15 @@ function ImageView({ entry, index }: { entry: HistoryEntry; index: number }) {
         />
       </div>
       <div style={{ flex: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "12px 20px 16px", fontSize: 12, color: "var(--color-neutral-500)" }}>
-        <button className="btn btn-ghost btn-icon" title="이전 (←)" disabled={index === 0} onClick={() => go(index - 1)} style={{ width: 30, height: 30 }}>
+        <button className="btn btn-ghost btn-icon" title={t("common.prev")} disabled={index === 0} onClick={() => go(index - 1)} style={{ width: 30, height: 30 }}>
           <i className="ph ph-caret-left" style={{ fontSize: 15 }} />
         </button>
         <span style={{ fontVariantNumeric: "tabular-nums" }}>
           {index + 1} / {entry.images.length}
         </span>
         <span style={{ minWidth: 0, maxWidth: 420, color: "var(--color-neutral-700)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{img.rel_path}</span>
-        {missing && <span style={{ flex: "none", color: "var(--color-neutral-700)" }}>· 원본을 찾을 수 없어 썸네일로 표시</span>}
-        <button className="btn btn-ghost btn-icon" title="다음 (→)" disabled={index === entry.images.length - 1} onClick={() => go(index + 1)} style={{ width: 30, height: 30 }}>
+        {missing && <span style={{ flex: "none", color: "var(--color-neutral-700)" }}>{t("history.missingOriginal")}</span>}
+        <button className="btn btn-ghost btn-icon" title={t("common.next")} disabled={index === entry.images.length - 1} onClick={() => go(index + 1)} style={{ width: 30, height: 30 }}>
           <i className="ph ph-caret-right" style={{ fontSize: 15 }} />
         </button>
       </div>

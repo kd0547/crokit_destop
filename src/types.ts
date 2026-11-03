@@ -1,3 +1,5 @@
+import type { LanguageSetting } from "@/i18n";
+
 export interface DurationPreset {
   seconds: number;
   isUser: boolean;
@@ -47,6 +49,8 @@ export interface Settings {
   current_folder_id: string | null;
   folder_selection: FolderSelectionItem[];
   flip_hotkey: Hotkey | null;
+  /** "system" follows the OS language (see src/i18n) */
+  language: LanguageSetting;
 }
 
 /** recursive = the folder and all its subfolders, otherwise only images directly inside it */
@@ -79,6 +83,14 @@ export interface FolderFile {
   name: string;
   is_gif: boolean;
   folder_id: string | null;
+  favorite: boolean;
+  /** left out of practice sessions; only folder listings include hidden images */
+  hidden: boolean;
+}
+
+export interface ImageFlags {
+  favorite: boolean;
+  hidden: boolean;
 }
 
 export interface PracticeImage {
@@ -137,6 +149,8 @@ export interface SessionSnapshot {
 
 export interface CrokitBridge {
   apiBase: string;
+  /** per-launch backend token: X-Crokit-Token header, or ?t= where headers can't be set */
+  apiToken: string;
   window: {
     minimize: () => Promise<void>;
     close: () => Promise<void>;

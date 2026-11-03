@@ -9,12 +9,18 @@ import { useWindowTitle } from "./hooks/useWindowTitle";
 import { addFolderPath, initApp } from "./state/actions";
 import { useSessionStore } from "./state/sessionStore";
 import { useUiStore } from "./state/uiStore";
+import { useSettingsStore } from "./state/settingsStore";
+import { applyLanguage, useT } from "./i18n";
 
 function Shell() {
   const subscribeSession = useSessionStore((s) => s.subscribe);
+  const language = useSettingsStore((s) => s.settings?.language);
   useKeyboardShortcuts();
   useFlipHotkey();
   useWindowTitle();
+
+  // until settings load (and for "system") this follows the OS language
+  useEffect(() => applyLanguage(language), [language]);
 
   useEffect(() => {
     initApp();
@@ -45,6 +51,7 @@ function Shell() {
 function FolderDropZone() {
   const [over, setOver] = useState(false);
   const running = useSessionStore((s) => s.snapshot.state !== "idle");
+  const t = useT();
 
   useEffect(() => {
     let depth = 0; // dragenter/leave fire for every child element
@@ -104,8 +111,8 @@ function FolderDropZone() {
       }}
     >
       <i className="ph ph-folder-simple-plus" style={{ fontSize: 40 }} />
-      <div style={{ fontSize: 15, fontWeight: 500 }}>폴더를 놓으면 라이브러리에 등록돼요</div>
-      <div style={{ fontSize: 12, color: "var(--color-accent-400)" }}>하위 폴더까지 모두 읽어 옵니다</div>
+      <div style={{ fontSize: 15, fontWeight: 500 }}>{t("drop.title")}</div>
+      <div style={{ fontSize: 12, color: "var(--color-accent-400)" }}>{t("drop.hint")}</div>
     </div>
   );
 }
