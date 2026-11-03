@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { copyImageToClipboard } from "@/lib/clipboard";
+import { MenuList } from "./Menu";
 import { fileUrl } from "@/api/client";
 import { useFolderStore } from "@/state/folderStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { useSessionStore } from "@/state/sessionStore";
 import { useUiStore } from "@/state/uiStore";
-import { gifClearRange, gifSetA, gifSetB, gifStep, gifTogglePlay, gifToggleFreeze, loadGifFrames, nextPhoto, prevPhoto, stopSession, togglePause, wake } from "@/state/actions";
+import { extendTimer, gifClearRange, gifSetA, gifSetB, gifStep, gifTogglePlay, gifToggleFreeze, loadGifFrames, nextPhoto, prevPhoto, resetTimer, stopSession, togglePause, wake } from "@/state/actions";
 import { addFolderViaDialog, browseStep, startSession, togglePanel, toggleSetting } from "@/state/actions";
 import { durLabel, fmtClock } from "@/lib/format";
 import { gridBackgroundImage, hexToRgba } from "@/lib/color";
 import { LibraryLayer } from "./LibraryLayer";
 import { HistoryLayer } from "./HistoryLayer";
+import { useImageView } from "@/hooks/useImageView";
 
 const GIF_FPS = 12;
 
@@ -21,6 +24,8 @@ export function Stage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [natural, setNatural] = useState({ width: 0, height: 0 });
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; source: string; path: string } | null>(null);
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   const sessionActive = snapshot.state !== "idle";
   const currentPath = sessionActive ? snapshot.current?.path ?? null : files[ui.currentIndex]?.path ?? null;
@@ -62,13 +67,42 @@ export function Stage() {
 
   const displaySrc = currentIsGif ? ui.gifFrames[ui.gifFrame] ?? currentPath : currentPath;
 
-  let box = { width: 0, height: 0 };
-  if (natural.width > 0 && natural.height > 0 && containerSize.width > 0 && containerSize.height > 0) {
-    const scale = Math.min(containerSize.width / natural.width, containerSize.height / natural.height);
-    box = { width: natural.width * scale, height: natural.height * scale };
-  }
+  const copyImage = useCallback(async (source: string) => {
+    try {
+      await copyImageToClipboard([fileUrl(source)]);
+      useUiStore.getState().showNotice("이미지를 클립보드에 복사했습니다");
+    } catch (error) {
+      console.error("Image clipboard copy failed", error);
+      const detail = error instanceof Error ? error.message : String(error);
+      useUiStore.getState().showNotice(`이미지 복사 실패: ${detail}`);
+    }
+  }, []);
 
-  const progressPct = snapshot.state === "running" ? Math.min(100, ((snapshot.durationSeconds * 1000 - snapshot.remainingMs + 1000) / (snapshot.durationSeconds * 1000)) * 100) : 0;
+  useEffect(() => {
+    setContextMenu(null);
+  }, [currentPath, ui.browsing, ui.historyView]);
+
+  useEffect(() => {
+    const onCopy = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable]:not([contenteditable='false'])")) return;
+      if (!event.ctrlKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== "c") return;
+      if (!displaySrc || ui.browsing || ui.historyView || ui.menuOpen) return;
+      event.preventDefault();
+      void copyImage(displaySrc);
+    };
+    window.addEventListener("keydown", onCopy);
+    return () => window.removeEventListener("keydown", onCopy);
+  }, [displaySrc, ui.browsing, ui.historyView, ui.menuOpen, copyImage]);
+
+  const imageView = useImageView({
+    containerRef, image: natural, viewport: containerSize, source: currentPath,
+    enabled: !ui.browsing && !ui.historyView && !ui.menuOpen && !contextMenu,
+  });
+  const { box, view } = imageView;
+
+  const phaseTotalMs = snapshot.phaseTotalMs || snapshot.durationSeconds * 1000;
+  const progressPct = snapshot.state === "running" ? Math.min(100, ((phaseTotalMs - snapshot.remainingMs + 1000) / phaseTotalMs) * 100) : 0;
 
   return (
     <div style={{ flex: 1, position: "relative", minWidth: 0, background: "var(--color-bg)", overflow: "hidden" }}>
@@ -84,6 +118,8 @@ export function Stage() {
               position: "absolute",
               top: 0,
               left: 0,
+              zIndex: 3,
+              pointerEvents: "none",
               height: 2,
               width: `${progressPct}%`,
               background: "var(--color-accent)",
@@ -128,22 +164,32 @@ export function Stage() {
             </div>
           )}
 
-          <div ref={containerRef} style={{ position: "absolute", inset: currentIsGif ? "16px 16px 104px" : 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div ref={containerRef} {...imageView.handlers}
+            title="휠: 확대/축소 · 왼쪽 드래그: 이동 · 오른쪽 드래그: 화면 중심 기준 회전 · 더블클릭: 초기화"
+            onContextMenu={(event) => {
+              event.preventDefault();
+              if (imageView.shouldSuppressContextMenu() || !currentPath || !displaySrc) return;
+              wake();
+              setContextMenu({ x: event.clientX, y: event.clientY, source: displaySrc, path: currentPath });
+            }}
+            style={{ position: "absolute", inset: currentIsGif ? "0 0 104px" : 0, overflow: "hidden", touchAction: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: !visible ? "none" : displaySrc ? imageView.dragging ? "grabbing" : "grab" : "default" }}>
             {displaySrc ? (
               <div
                 style={{
                   position: "relative",
+                  flexShrink: 0,
                   width: box.width || "auto",
                   height: box.height || "auto",
                   filter: settings?.gray ? "grayscale(1)" : "none",
-                  transform: settings?.flip ? "scaleX(-1)" : "none",
+                  transform: `translate(${view.x}px, ${view.y}px) rotate(${view.rotation}deg) scale(${view.zoom})`,
                   transition: "filter .3s",
                 }}
               >
                 <img
+                  draggable={false}
                   src={fileUrl(displaySrc)}
                   onLoad={(e) => setNatural({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })}
-                  style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+                  style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", transform: settings?.flip ? "scaleX(-1)" : "none" }}
                 />
                 {settings?.grid && <GridOverlay color={settings.grid_color} opacity={settings.grid_opacity} divisions={settings.grid_divisions} />}
               </div>
@@ -151,6 +197,12 @@ export function Stage() {
               <EmptyState />
             )}
           </div>
+
+          {displaySrc && visible && (view.zoom !== 1 || view.rotation !== 0) && (
+            <div style={{ position: "absolute", top: 8, right: 8, zIndex: 4, pointerEvents: "none", padding: "3px 8px", borderRadius: 6, background: "rgba(7,8,12,.78)", fontSize: 11 }}>
+              {Math.round(view.zoom * 100)}% · {Math.round(view.rotation) % 360}°
+            </div>
+          )}
 
           {currentIsGif && (
             <GifBar frameCount={ui.gifFrames.length} visible={visible} />
@@ -191,6 +243,8 @@ export function Stage() {
               />
               <ControlIcon icon="ph ph-caret-right" title="다음 (→)" onClick={nextPhoto} size={36} iconSize={17} />
               <div style={{ width: 1, height: 18, background: "#23242f", margin: "0 4px" }} />
+              <TimerControls size={36} fontSize={12} iconSize={16} />
+              <div style={{ width: 1, height: 18, background: "#23242f", margin: "0 4px" }} />
               <ControlIcon icon="ph ph-circle-half" title="흑백" onClick={() => toggleSetting("gray")} size={36} iconSize={16} active={settings?.gray} />
               <ControlIcon icon="ph ph-flip-horizontal" title="좌우 반전" onClick={() => toggleSetting("flip")} size={36} iconSize={16} active={settings?.flip} />
               <ControlIcon icon="ph ph-grid-nine" title="그리드" onClick={() => toggleSetting("grid")} size={36} iconSize={16} active={settings?.grid} />
@@ -203,6 +257,21 @@ export function Stage() {
         </main>
       )}
       {ui.historyView && <HistoryLayer />}
+      {contextMenu && (
+        <MenuList
+          entries={[
+            { label: currentIsGif ? "현재 프레임 복사" : "이미지 복사", hint: "Ctrl+C", onClick: () => { void copyImage(contextMenu.source); } },
+            { label: "파일 위치 열기", onClick: () => {
+              void window.crokit.files.showInFolder(contextMenu.path).catch(() => {
+                useUiStore.getState().showNotice("파일 위치를 열지 못했습니다. 원본 파일을 확인하세요");
+              });
+            } },
+          ]}
+          onClose={closeContextMenu}
+          width={220}
+          style={{ left: Math.max(4, Math.min(contextMenu.x, window.innerWidth - 224)), top: Math.max(4, Math.min(contextMenu.y, window.innerHeight - 80)), maxWidth: "calc(100vw - 8px)", maxHeight: "calc(100vh - 8px)", overflowY: "auto" }}
+        />
+      )}
     </div>
   );
 }
@@ -247,6 +316,18 @@ function ControlIcon({
     >
       <i className={icon} style={{ fontSize: iconSize }} />
     </button>
+  );
+}
+
+/** +30s / +1min / reset for the clock that is showing (observe, drawing or break). */
+function TimerControls({ size, fontSize, iconSize }: { size: number; fontSize: number; iconSize: number }) {
+  const textStyle = { height: size, padding: "0 7px", fontSize, fontWeight: 500, fontVariantNumeric: "tabular-nums" as const, color: "var(--color-neutral-500)" };
+  return (
+    <>
+      <button title="30초 연장 (=)" onClick={() => extendTimer(30)} className="btn btn-ghost" style={textStyle}>+30초</button>
+      <button title="1분 연장 (Shift + =)" onClick={() => extendTimer(60)} className="btn btn-ghost" style={textStyle}>+1분</button>
+      <ControlIcon icon="ph ph-arrow-counter-clockwise" title="타이머 리셋 (T)" onClick={resetTimer} size={size} iconSize={iconSize} />
+    </>
   );
 }
 
@@ -322,6 +403,12 @@ function ControlDock({ bottom }: { bottom: number }) {
         )}
         <ControlIcon icon="ph ph-caret-right" title="다음 (→)" onClick={() => (sessionActive ? nextPhoto() : browseStep(1))} size={30} iconSize={15} />
         {sessionActive && <ControlIcon icon="ph ph-stop" title="세션 종료 (Esc)" onClick={stopSession} size={30} iconSize={14} />}
+        {sessionActive && (
+          <>
+            <div style={{ width: 1, height: 16, background: "#23242f", margin: "0 3px" }} />
+            <TimerControls size={30} fontSize={11.5} iconSize={14} />
+          </>
+        )}
         <div style={{ width: 1, height: 16, background: "#23242f", margin: "0 3px" }} />
         <ControlIcon icon="ph ph-circle-half" title="흑백" onClick={() => toggleSetting("gray")} size={30} iconSize={14} active={settings?.gray} />
         <ControlIcon icon="ph ph-flip-horizontal" title="좌우 반전" onClick={() => toggleSetting("flip")} size={30} iconSize={14} active={settings?.flip} />

@@ -2,14 +2,13 @@ import argparse
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 from . import db, hotkey
-from .routers import folders, gif, history, settings, thumbnail
+from .routers import custom, files, folders, gif, history, settings, thumbnail
 from .routers import hotkey as hotkey_router
 
 logging.basicConfig(level=logging.INFO)
@@ -55,14 +54,8 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/files")
-def get_file(path: str):
-    p = Path(path)
-    if not p.exists() or not p.is_file():
-        raise HTTPException(status_code=404, detail="file not found")
-    return FileResponse(p)
-
-
+app.include_router(custom.router)
+app.include_router(files.router)
 app.include_router(folders.router)
 app.include_router(gif.router)
 app.include_router(history.router)

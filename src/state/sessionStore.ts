@@ -18,6 +18,7 @@ const idleSnapshot: SessionSnapshot = {
   currentIndex: 0,
   folderName: "",
   durationSeconds: 60,
+  phaseTotalMs: 0,
 };
 
 export const useSessionStore = create<SessionStoreState>((set, get) => ({

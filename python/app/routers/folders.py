@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -92,7 +93,7 @@ def _row_to_out(row) -> FolderOut:
     path = Path(row["path"])
     tree = _build_tree(path, "") if path.is_dir() else FolderNode(rel_path="", name=row["name"], count=0, total=0)
     tree.name = row["name"]
-    return FolderOut(id=row["id"], name=row["name"], path=row["path"], order_index=row["order_index"], count=tree.total, tree=tree)
+    return FolderOut(id=row["id"], name=row["name"], path=row["path"], order_index=row["order_index"], kind=row["kind"], count=tree.total, tree=tree)
 
 
 def _get_row(conn, folder_id: str):
@@ -117,6 +118,8 @@ def add_folder(payload: AddFolderRequest):
     path = Path(payload.path)
     if not path.exists() or not path.is_dir():
         raise HTTPException(status_code=400, detail="폴더를 찾을 수 없습니다")
+    if path.resolve().is_relative_to(db.CUSTOM_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="커스텀 폴더는 따로 등록할 수 없습니다")
 
     conn = db.get_connection()
     try:
@@ -142,6 +145,7 @@ def add_folder(payload: AddFolderRequest):
 def delete_folder(folder_id: str):
     conn = db.get_connection()
     try:
+        folder = conn.execute("SELECT * FROM folders WHERE id = ?", (folder_id,)).fetchone()
         deleted = conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,)).rowcount
         conn.execute("UPDATE settings SET current_folder_id = NULL WHERE current_folder_id = ?", (folder_id,))
         # 이 폴더를 가리키는 선택 항목도 정리
@@ -152,6 +156,11 @@ def delete_folder(folder_id: str):
         # 실제 등록된 폴더일 때만 썸네일 디렉터리 삭제 (임의 folder_id로 다른 경로를 지우지 않도록)
         if deleted:
             delete_folder_thumbnails(folder_id)
+        # custom folders are app-managed copies: remove their files too (linked folders are never touched)
+        if folder is not None and folder["kind"] == "custom":
+            path = Path(folder["path"]).resolve()
+            if path.parent == db.CUSTOM_DIR.resolve():
+                shutil.rmtree(path, ignore_errors=True)
         return {"ok": True}
     finally:
         conn.close()
@@ -167,6 +176,8 @@ def list_files(folder_id: str, rel_path: str = "", recursive: bool = False):
         conn.close()
     target = _resolve_in_root(Path(row["path"]), rel_path)
     return [FolderFile(path=str(p), name=p.name, is_gif=image_ops.is_gif(p), folder_id=folder_id) for p in _iter_images(target, recursive)]
+
+
 
 
 @router.post("/files", response_model=list[FolderFile])

@@ -32,18 +32,20 @@ export interface SessionSnapshot {
   currentIndex: number;
   folderName: string;
   durationSeconds: number;
+  phaseTotalMs: number; // full length of the current phase incl. extensions (progress-bar denominator)
 }
 
 export interface SessionFinishResult {
   imagesDrawn: number; // only images whose drawing timer ran out (skipped/stopped ones don't count)
   durationSeconds: number;
-  minutes: number;
+  minutes: number; // actual drawing time of the drawn images (extensions included)
   folderId: string | null;
   folderName: string;
   images: string[]; // paths of the drawn images, in completion order
 }
 
 const TICK_MS = 200;
+const MAX_EXTEND_MS = 60 * 60 * 1000; // one call may add at most an hour
 
 /**
  * Practice-session state machine, running in the Electron main process so
@@ -61,6 +63,9 @@ export class SessionManager extends EventEmitter {
   private pausedFromState: SessionState = "running";
   private config: SessionConfig | null = null;
   private completed: number[] = []; // playlist indices whose drawing phase ran to the end
+  private drawnMs = 0; // drawing time of the completed images, summed
+  private phaseLengthMs = 0; // full length of the current phase (base + extensions, restarted by resetTimer)
+  private carriedDrawMs = 0; // drawing time spent on the current image before the last resetTimer()
   private timer: ReturnType<typeof setInterval> | null = null;
 
   start(playlist: PlaylistEntry[], config: SessionConfig, startAt = 0): void {
@@ -70,6 +75,7 @@ export class SessionManager extends EventEmitter {
     this.playlist = config.isRandom ? shuffle(playlist) : playlist;
     this.config = config;
     this.completed = [];
+    this.drawnMs = 0;
     this.currentIndex = Math.min(startAt, this.playlist.length - 1);
     this.startIndex = this.currentIndex;
     this.totalCount = config.targetCount > 0 ? Math.min(config.targetCount, this.playlist.length - this.startIndex) : this.playlist.length - this.startIndex;
@@ -101,6 +107,31 @@ export class SessionManager extends EventEmitter {
     if (result) this.emit("finished", result);
     this.emitUpdate();
     return result;
+  }
+
+  /**
+   * Add time to whatever clock is showing: observe, drawing or break (also while
+   * paused). Extending the drawing phase also counts toward the history minutes.
+   */
+  extend(ms: number): void {
+    if (!Number.isFinite(ms) || ms <= 0 || !this.hasTimer()) return;
+    const add = Math.min(ms, MAX_EXTEND_MS);
+    this.setRemaining(this.currentRemaining() + add);
+    this.phaseLengthMs += add;
+    this.emitUpdate();
+  }
+
+  /** Restart the showing clock from its configured length (drawing: durationSeconds). */
+  resetTimer(): void {
+    if (!this.hasTimer()) return;
+    const cfg = this.config!;
+    const phase = this.activePhase();
+    // time already drawn still happened -- keep it for the history minutes
+    if (phase === "running") this.carriedDrawMs += Math.max(0, this.phaseLengthMs - this.currentRemaining());
+    const full = (phase === "observe" ? cfg.observeSeconds : phase === "break" ? cfg.breakSeconds : cfg.durationSeconds) * 1000;
+    this.setRemaining(full);
+    this.phaseLengthMs = full;
+    this.emitUpdate();
   }
 
   next(): void {
@@ -135,7 +166,26 @@ export class SessionManager extends EventEmitter {
       currentIndex: this.currentIndex,
       folderName: this.config?.folderName ?? "",
       durationSeconds: this.config?.durationSeconds ?? 60,
+      phaseTotalMs: this.state === "idle" ? 0 : this.phaseLengthMs,
     };
+  }
+
+  private hasTimer(): boolean {
+    return this.config !== null && (this.state === "observe" || this.state === "running" || this.state === "break" || this.state === "paused");
+  }
+
+  /** The phase whose clock is showing; for "paused", the phase it was paused from. */
+  private activePhase(): SessionState {
+    return this.state === "paused" ? this.pausedFromState : this.state;
+  }
+
+  private currentRemaining(): number {
+    return Math.max(0, this.pausedRemainingMs ?? this.deadline - Date.now());
+  }
+
+  private setRemaining(ms: number): void {
+    if (this.state === "paused") this.pausedRemainingMs = ms;
+    else this.deadline = Date.now() + ms;
   }
 
   private buildFinishResult(): SessionFinishResult | null {
@@ -144,7 +194,7 @@ export class SessionManager extends EventEmitter {
     return {
       imagesDrawn,
       durationSeconds: this.config.durationSeconds,
-      minutes: Math.round((imagesDrawn * this.config.durationSeconds) / 60),
+      minutes: Math.round(this.drawnMs / 60000),
       folderId: this.config.folderId,
       folderName: this.config.folderName,
       images: this.completed.map((i) => this.playlist[i].path),
@@ -160,11 +210,13 @@ export class SessionManager extends EventEmitter {
     }
 
     if (this.state === "observe") {
-      this.state = "running";
-      this.deadline = Date.now() + this.config!.durationSeconds * 1000;
+      this.startDrawing();
     } else if (this.state === "running") {
       // drawing time ran out -> this image counts (once, even if revisited with previous())
-      if (!this.completed.includes(this.currentIndex)) this.completed.push(this.currentIndex);
+      if (!this.completed.includes(this.currentIndex)) {
+        this.completed.push(this.currentIndex);
+        this.drawnMs += this.carriedDrawMs + this.phaseLengthMs;
+      }
       const shown = this.currentIndex - this.startIndex + 1;
       const reachedEnd = shown >= this.totalCount;
       if (reachedEnd) {
@@ -177,7 +229,8 @@ export class SessionManager extends EventEmitter {
       const cfg = this.config!;
       if (cfg.breaksEnabled && shown % cfg.breakEvery === 0) {
         this.state = "break";
-        this.deadline = Date.now() + cfg.breakSeconds * 1000;
+        this.phaseLengthMs = cfg.breakSeconds * 1000;
+        this.deadline = Date.now() + this.phaseLengthMs;
       } else {
         this.advance();
       }
@@ -195,13 +248,21 @@ export class SessionManager extends EventEmitter {
   /** Start the current image: observe phase first when enabled, then drawing. */
   private beginImage(): void {
     const cfg = this.config!;
+    this.pausedRemainingMs = null; // next/previous while paused start the new image running
+    this.carriedDrawMs = 0;
     if (cfg.observeEnabled && cfg.observeSeconds > 0) {
       this.state = "observe";
-      this.deadline = Date.now() + cfg.observeSeconds * 1000;
+      this.phaseLengthMs = cfg.observeSeconds * 1000;
+      this.deadline = Date.now() + this.phaseLengthMs;
     } else {
-      this.state = "running";
-      this.deadline = Date.now() + cfg.durationSeconds * 1000;
+      this.startDrawing();
     }
+  }
+
+  private startDrawing(): void {
+    this.state = "running";
+    this.phaseLengthMs = this.config!.durationSeconds * 1000;
+    this.deadline = Date.now() + this.phaseLengthMs;
   }
 
   private stopInternal(): void {

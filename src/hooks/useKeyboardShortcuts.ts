@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useSessionStore } from "@/state/sessionStore";
 import { useFolderStore } from "@/state/folderStore";
 import { useUiStore } from "@/state/uiStore";
-import { browseStep, gifStep, gifTogglePlay, nextPhoto, prevPhoto, startSession, stopSession, togglePanel, togglePause, wake } from "@/state/actions";
+import { browseStep, extendTimer, gifStep, gifTogglePlay, nextPhoto, prevPhoto, resetTimer, startSession, stopSession, togglePanel, togglePause, wake } from "@/state/actions";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -44,6 +44,13 @@ export function useKeyboardShortcuts() {
           e.preventDefault();
           browseStep(delta);
         }
+      } else if (running && (e.code === "Equal" || e.code === "NumpadAdd") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // "=" -> +30s, Shift+"=" -> +1min (e.code, so it works regardless of layout/IME)
+        e.preventDefault();
+        extendTimer(e.shiftKey ? 60 : 30);
+      } else if (running && e.code === "KeyT" && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        resetTimer();
       } else if (e.key === "," && currentIsGif()) {
         gifStep(-1);
       } else if (e.key === "." && currentIsGif()) {

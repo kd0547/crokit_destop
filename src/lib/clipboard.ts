@@ -12,15 +12,27 @@ export async function copyImageToClipboard(urls: string[]): Promise<number> {
     try {
       const res = await fetch(urls[i]);
       if (!res.ok) throw new Error(`${res.status} ${urls[i]}`);
-      const bitmap = await createImageBitmap(await res.blob());
+      const blob = await res.blob();
+      // Use the same decoder as the image viewer, including formats that
+      // createImageBitmap may reject in the installed Chromium version.
+      const objectUrl = URL.createObjectURL(blob);
+      const image = new Image();
+      try {
+        image.src = objectUrl;
+        await image.decode();
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
       const canvas = document.createElement("canvas");
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
-      bitmap.close();
-      const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-      if (!png) throw new Error("PNG encoding failed");
-      await window.crokit.clipboard.writeImage(await png.arrayBuffer());
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("이미지 변환용 캔버스를 만들 수 없습니다");
+      context.drawImage(image, 0, 0);
+      const png = canvas.toDataURL("image/png");
+      if (!png.startsWith("data:image/png;base64,")) throw new Error("PNG 변환에 실패했습니다");
+      // Strings retain their type across both contextBridge and IPC.
+      await window.crokit.clipboard.writeImage(png);
       return i;
     } catch (err) {
       lastError = err;

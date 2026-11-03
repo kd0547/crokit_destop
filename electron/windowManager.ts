@@ -28,8 +28,6 @@ export function createMainWindow(preload: string, opts: MainWindowOptions): Brow
     height: opts.height,
     x: opts.x ?? undefined,
     y: opts.y ?? undefined,
-    minWidth: 760,
-    minHeight: 480,
     frame: false,
     // dev only: the packaged exe already carries logo.ico (package.json build.win.icon)
     icon: isDev ? path.join(process.env.APP_ROOT ?? "", "logo.ico") : undefined,

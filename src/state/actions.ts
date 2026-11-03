@@ -53,11 +53,78 @@ export async function addFolderPath(path: string): Promise<void> {
   useUiStore.getState().showNotice(`'${folder.name}' 폴더를 등록했습니다 · ${folder.count}장`);
 }
 
+function errorText(err: unknown, fallback: string): string {
+  return err instanceof ApiError && err.detail ? err.detail : fallback;
+}
+
+/** new empty custom folder ("커스텀", "커스텀 2", ...); returns its id */
+export async function createCustomFolder(): Promise<string | null> {
+  try {
+    const folder = await api.createCustomFolder();
+    await useFolderStore.getState().fetchFolders();
+    return folder.id;
+  } catch (err) {
+    useUiStore.getState().showNotice(errorText(err, "폴더를 만들지 못했습니다"));
+    return null;
+  }
+}
+
+/** only custom folders can be renamed (their name lives only in the app) */
+export async function renameCustomFolder(id: string, name: string): Promise<void> {
+  const current = useFolderStore.getState().folders.find((f) => f.id === id);
+  if (!current || !name.trim() || name.trim() === current.name) return;
+  try {
+    await api.renameCustomFolder(id, name);
+    await useFolderStore.getState().fetchFolders();
+  } catch (err) {
+    useUiStore.getState().showNotice(errorText(err, "이름을 바꾸지 못했습니다"));
+  }
+}
+
+/** save images dropped onto the window into a custom folder (default: the first one, created if none) */
+export async function addCustomImages(files: File[], targetId?: string): Promise<void> {
+  let saved = 0;
+  let duplicates = 0;
+  let folderId: string | null = null;
+  let lastError: string | null = null;
+  for (const file of files) {
+    try {
+      const result = await api.addCustomImage(file, targetId);
+      folderId = result.folder_id;
+      if (result.duplicate) duplicates++;
+      else saved++;
+    } catch (err) {
+      lastError = errorText(err, "그림을 저장하지 못했습니다");
+    }
+  }
+  if (!folderId) {
+    useUiStore.getState().showNotice(lastError ?? "그림을 저장하지 못했습니다");
+    return;
+  }
+
+  await rescanFolders(); // picks up the new folder/images, also in the current playlist
+  if (selectionItems().length === 0) await saveSelection([{ folder_id: folderId, rel_path: "", recursive: true }]);
+  const ui = useUiStore.getState();
+  ui.setLibraryPath({ folderId, relPath: "" });
+  ui.setBrowsing(true);
+
+  const name = useFolderStore.getState().folders.find((f) => f.id === folderId)?.name ?? "커스텀";
+  const parts = [saved > 0 ? `'${name}' 폴더에 ${saved}장 저장했습니다` : `이미 '${name}' 폴더에 있는 그림입니다`];
+  if (saved > 0 && duplicates > 0) parts.push(`${duplicates}장은 이미 있음`);
+  const failed = files.length - saved - duplicates;
+  if (failed > 0) parts.push(`${failed}장 실패`);
+  ui.showNotice(parts.join(" · "));
+}
+
 export async function removeFolder(id: string): Promise<void> {
   const folderStore = useFolderStore.getState();
   const target = folderStore.folders.find((f) => f.id === id);
   if (!target) return;
-  if (!window.confirm(`'${target.name}' 폴더를 목록에서 삭제할까요?\n(실제 파일은 삭제되지 않습니다)`)) return;
+  const question =
+    target.kind === "custom"
+      ? `커스텀 폴더 '${target.name}'를 삭제할까요?\n저장된 그림 ${target.count}장도 함께 삭제되며 되돌릴 수 없습니다.`
+      : `'${target.name}' 폴더를 목록에서 삭제할까요?\n(실제 파일은 삭제되지 않습니다)`;
+  if (!window.confirm(question)) return;
 
   await folderStore.removeFolder(id);
   const ui = useUiStore.getState();
@@ -233,6 +300,20 @@ export function nextPhoto(): void {
 
 export function prevPhoto(): void {
   window.crokit.session.previous();
+}
+
+/** Give the current image (or observe/break clock) more time. */
+export function extendTimer(seconds: number): void {
+  if (useSessionStore.getState().snapshot.state === "idle") return;
+  window.crokit.session.extend(seconds * 1000);
+  wake();
+}
+
+/** Restart the current clock from its configured length. */
+export function resetTimer(): void {
+  if (useSessionStore.getState().snapshot.state === "idle") return;
+  window.crokit.session.resetTimer();
+  wake();
 }
 
 function customSecs(): number {

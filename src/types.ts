@@ -70,8 +70,19 @@ export interface FolderInfo {
   name: string;
   path: string;
   order_index: number;
+  /** linked = a directory the user registered, custom = app-managed folder for dropped images (renamable) */
+  kind: "linked" | "custom";
   count: number;
   tree: FolderNode;
+}
+
+/** result of dropping an image onto the app (stored in the "커스텀" folder) */
+export interface CustomImage {
+  folder_id: string;
+  path: string;
+  name: string;
+  /** the same image was already there, nothing new was saved */
+  duplicate: boolean;
 }
 
 export interface FolderFile {
@@ -133,6 +144,8 @@ export interface SessionSnapshot {
   currentIndex: number;
   folderName: string;
   durationSeconds: number;
+  /** full length of the current phase incl. extensions */
+  phaseTotalMs: number;
 }
 
 export interface CrokitBridge {
@@ -149,11 +162,12 @@ export interface CrokitBridge {
     selectFolder: () => Promise<string | null>;
   };
   files: {
+    showInFolder: (filePath: string) => Promise<void>;
     /** absolute path of a file/folder dropped onto the window */
     getPathForFile: (file: File) => string;
   };
   clipboard: {
-    writeImage: (png: ArrayBuffer) => Promise<void>;
+    writeImage: (png: string) => Promise<void>;
   };
   session: {
     start: (playlist: PlaylistEntry[], config: SessionConfig, startAt: number) => Promise<void>;
@@ -162,6 +176,10 @@ export interface CrokitBridge {
     stop: () => Promise<void>;
     next: () => Promise<void>;
     previous: () => Promise<void>;
+    /** add time to the showing clock (observe / drawing / break, also while paused) */
+    extend: (ms: number) => Promise<void>;
+    /** restart the showing clock from its configured length */
+    resetTimer: () => Promise<void>;
     getSnapshot: () => Promise<SessionSnapshot>;
     onUpdate: (callback: (snapshot: SessionSnapshot) => void) => () => void;
   };

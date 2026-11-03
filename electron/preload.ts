@@ -19,12 +19,13 @@ contextBridge.exposeInMainWorld("crokit", {
   },
 
   files: {
+    showInFolder: (filePath: string): Promise<void> => ipcRenderer.invoke("files:showInFolder", filePath),
     // File.path was removed in Electron 32; webUtils is only reachable from the preload
     getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   },
 
   clipboard: {
-    writeImage: (png: ArrayBuffer): Promise<void> => ipcRenderer.invoke("clipboard:writeImage", png),
+    writeImage: (png: string): Promise<void> => ipcRenderer.invoke("clipboard:writeImage", png),
   },
 
   session: {
@@ -34,6 +35,8 @@ contextBridge.exposeInMainWorld("crokit", {
     stop: () => ipcRenderer.invoke("session:stop"),
     next: () => ipcRenderer.invoke("session:next"),
     previous: () => ipcRenderer.invoke("session:previous"),
+    extend: (ms: number) => ipcRenderer.invoke("session:extend", ms),
+    resetTimer: () => ipcRenderer.invoke("session:resetTimer"),
     getSnapshot: () => ipcRenderer.invoke("session:getSnapshot"),
     onUpdate: (callback: (snapshot: unknown) => void) => {
       const listener = (_event: unknown, snapshot: unknown) => callback(snapshot);

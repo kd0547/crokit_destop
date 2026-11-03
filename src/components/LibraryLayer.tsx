@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, thumbUrl } from "@/api/client";
 import { useFolderStore } from "@/state/folderStore";
 import { useSessionStore } from "@/state/sessionStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { useUiStore } from "@/state/uiStore";
+import { imageKey, useImageMarksStore } from "@/state/imageMarksStore";
 import {
   addFolderViaDialog,
   clearSelection,
+  createCustomFolder,
   openInBrowsing,
   removeFolder,
+  renameCustomFolder,
   removeSelectionItem,
   rescanFolders,
   startSession,
@@ -38,6 +41,16 @@ export function LibraryLayer() {
   const [query, setQuery] = useState("");
   const [cardSize, setCardSize] = useState<CardSize>("large");
   const [scanning, setScanning] = useState(false);
+  /** custom folder whose name is being edited inline */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const finishRename = (id: string, name: string | null) => {
+    setRenaming(null);
+    if (name !== null) renameCustomFolder(id, name);
+  };
+  const newCustomFolder = async () => {
+    const id = await createCustomFolder();
+    if (id) setRenaming(id);
+  };
 
   const keys = useMemo(() => expandSelection(folders, items), [folders, items]);
   const totals = useMemo(() => selectedTotals(folders, keys), [folders, keys]);
@@ -61,6 +74,8 @@ export function LibraryLayer() {
     // capture phase so the global shortcuts (Esc = stop session, arrows = photo nav) don't also fire
     const onKeyDown = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement | null)?.tagName === "INPUT";
+      // the rename field handles its own Enter/Escape
+      if (typing && (e.target as HTMLElement).dataset.inlineEdit !== undefined) return;
       if (e.key === "Escape") {
         if (query) setQuery("");
         else setBrowsing(false);
@@ -111,46 +126,47 @@ export function LibraryLayer() {
         <SectionTitle>등록된 폴더</SectionTitle>
         <div style={grid}>
           {folders.map((f) => (
-            <FolderCard key={f.id} folder={f} node={f.tree} state={stateOf(f.id, f.tree, totals)} onOpen={() => open(f, f.tree)} onRemove={running ? undefined : () => removeFolder(f.id)} />
+            <FolderCard
+              key={f.id}
+              folder={f}
+              node={f.tree}
+              state={stateOf(f.id, f.tree, totals)}
+              onOpen={() => open(f, f.tree)}
+              onRemove={running ? undefined : () => removeFolder(f.id)}
+              onRename={f.kind === "custom" ? () => setRenaming(f.id) : undefined}
+              renaming={renaming === f.id}
+              onRenameDone={(name) => finishRename(f.id, name)}
+            />
           ))}
-          <button
-            className="lib-card"
-            onClick={addFolderViaDialog}
-            style={{ display: "flex", flexDirection: "column", gap: 8, padding: 0, textAlign: "left" }}
-          >
-            <div
-              className="lib-cover"
-              style={{
-                aspectRatio: "4/3",
-                borderRadius: 10,
-                border: "1.5px dashed var(--color-border-strong)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                color: "var(--color-neutral-500)",
-                fontSize: 12,
-              }}
-            >
-              <i className="ph ph-folder-simple-plus" style={{ fontSize: 26 }} />
-              폴더 등록
-              <span style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>또는 창에 폴더를 끌어다 놓기</span>
-            </div>
-          </button>
+          <AddCard icon="ph-folder-simple-plus" title="폴더 등록" hint="또는 창에 폴더를 끌어다 놓기" onClick={addFolderViaDialog} />
+          <AddCard icon="ph-images-square" title="새 커스텀 폴더" hint="그림을 끌어다 놓아 모으는 폴더" onClick={newCustomFolder} />
         </div>
       </>
     );
   } else {
     const state = stateOf(folder.id, node, totals);
     const hasKids = node.children.length > 0;
+    const isCustomRoot = folder.kind === "custom" && node.rel_path === "";
     const absPath = node.rel_path ? `${folder.path}\\${node.rel_path.replace(/\//g, "\\")}` : folder.path;
     body = (
       <>
         <Heading
-          title={node.name}
-          meta={`${absPath} · ${hasKids ? `하위 포함 ${node.total}장 · 하위 폴더 ${node.children.length}개` : `${node.total}장`}`}
+          title={
+            isCustomRoot ? (
+              <InlineName value={node.name} editing={renaming === folder.id} onDone={(name) => finishRename(folder.id, name)} style={{ fontSize: 20, fontWeight: 600 }} />
+            ) : (
+              node.name
+            )
+          }
+          meta={`${isCustomRoot ? "커스텀 폴더 · 그림을 이 창에 끌어다 놓으면 여기에 저장돼요" : absPath} · ${hasKids ? `하위 포함 ${node.total}장 · 하위 폴더 ${node.children.length}개` : `${node.total}장`}`}
           action={
+            <>
+            {isCustomRoot && renaming !== folder.id && (
+              <button className="btn btn-ghost" onClick={() => setRenaming(folder.id)} style={{ flex: "none", height: 34, padding: "0 12px", fontSize: 13 }}>
+                <i className="ph ph-pencil-simple" style={{ fontSize: 15 }} />
+                이름 바꾸기
+              </button>
+            )}
             <button
               className={`btn ${state === "all" ? "btn-ghost" : "btn-primary"}`}
               onClick={() => toggleFolderSelection(folder.id, node.rel_path)}
@@ -160,6 +176,7 @@ export function LibraryLayer() {
               <i className={`ph ${state === "all" ? "ph-check-square" : "ph-plus-square"}`} style={{ fontSize: 15 }} />
               {state === "all" ? "선택됨 · 해제" : hasKids ? "이 폴더 전체 선택 (하위 포함)" : "이 폴더 선택"}
             </button>
+            </>
           }
         />
         {hasKids && (
@@ -173,7 +190,7 @@ export function LibraryLayer() {
           </>
         )}
         {node.count > 0 && <DirectImages folder={folder} node={node} hasKids={hasKids} selected={keys.has(nodeKey(folder.id, node.rel_path))} files={files} />}
-        {node.total === 0 && <Empty>이 폴더에는 이미지가 없습니다</Empty>}
+        {node.total === 0 && <Empty>{isCustomRoot ? "아직 그림이 없어요. 그림 파일을 이 창에 끌어다 놓으면 이 폴더에 저장됩니다." : "이 폴더에는 이미지가 없습니다"}</Empty>}
       </>
     );
   }
@@ -280,7 +297,7 @@ function Crumb({ current, onClick, children }: { current: boolean; onClick: () =
   );
 }
 
-function Heading({ title, meta, action }: { title: string; meta: string; action?: React.ReactNode }) {
+function Heading({ title, meta, action }: { title: React.ReactNode; meta: string; action?: React.ReactNode }) {
   return (
     <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginBottom: 22 }}>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -344,6 +361,9 @@ function FolderCard({
   state,
   onOpen,
   onRemove,
+  onRename,
+  renaming = false,
+  onRenameDone,
   crumb,
   query,
 }: {
@@ -352,9 +372,14 @@ function FolderCard({
   state: SelectState;
   onOpen: () => void;
   onRemove?: () => void;
+  /** only given for custom folders */
+  onRename?: () => void;
+  renaming?: boolean;
+  onRenameDone?: (name: string | null) => void;
   crumb?: boolean;
   query?: string;
 }) {
+  const isCustomRoot = folder.kind === "custom" && node.rel_path === "";
   const samples = node.samples;
   const parent = crumb ? nodeTrail(folder, node.rel_path).slice(0, -1).map((n) => n.name).join(" › ") : "";
   const mosaic: React.CSSProperties =
@@ -365,7 +390,13 @@ function FolderCard({
         : { gridTemplateColumns: "1fr", gridTemplateRows: "1fr" };
 
   return (
-    <div className="lib-card" onClick={onOpen} title={`${node.name} 열기`} style={{ position: "relative", display: "flex", flexDirection: "column", gap: 8, cursor: "pointer", minWidth: 0 }}>
+    <div
+      className="lib-card"
+      data-custom-folder={isCustomRoot ? folder.id : undefined}
+      onClick={renaming ? undefined : onOpen}
+      title={renaming ? undefined : `${node.name} 열기`}
+      style={{ position: "relative", display: "flex", flexDirection: "column", gap: 8, cursor: "pointer", minWidth: 0 }}
+    >
       <div
         className="lib-cover"
         style={{
@@ -382,8 +413,9 @@ function FolderCard({
         }}
       >
         {samples.length === 0 ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-neutral-800)" }}>
-            <i className="ph ph-folder-simple-dashed" style={{ fontSize: 30 }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center", justifyContent: "center", color: "var(--color-neutral-800)", fontSize: 11 }}>
+            <i className={`ph ${isCustomRoot ? "ph-images-square" : "ph-folder-simple-dashed"}`} style={{ fontSize: 30 }} />
+            {isCustomRoot && <span style={{ color: "var(--color-neutral-600)" }}>그림을 여기에 끌어다 놓기</span>}
           </div>
         ) : (
           samples.map((path, i) => (
@@ -397,6 +429,12 @@ function FolderCard({
             />
           ))
         )}
+        {isCustomRoot && (
+          <Badge style={{ top: 8, right: 8 }}>
+            <i className="ph ph-images-square" style={{ fontSize: 12 }} />
+            커스텀
+          </Badge>
+        )}
         {node.children.length > 0 && (
           <Badge style={{ top: 8, right: 8 }}>
             <i className="ph ph-folders" style={{ fontSize: 12 }} />
@@ -407,18 +445,15 @@ function FolderCard({
           열기
           <i className="ph ph-arrow-right" style={{ fontSize: 12 }} />
         </Badge>
-        {onRemove && (
-          <button
-            className="lib-hover"
-            title="목록에서 삭제 (실제 파일은 그대로)"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-            style={{ position: "absolute", left: 8, bottom: 8, width: 26, height: 26, borderRadius: 6, background: "rgba(7,8,12,.75)", color: "var(--color-neutral-400)", display: "flex", alignItems: "center", justifyContent: "center" }}
-          >
-            <i className="ph ph-trash" style={{ fontSize: 14 }} />
-          </button>
+        {(onRemove || onRename) && (
+          <div className="lib-hover" style={{ position: "absolute", left: 8, bottom: 8, display: "flex", gap: 4 }}>
+            {onRename && (
+              <CardButton icon="ph-pencil-simple" title="이름 바꾸기" onClick={onRename} />
+            )}
+            {onRemove && (
+              <CardButton icon="ph-trash" title={isCustomRoot ? "폴더와 저장된 그림 삭제" : "목록에서 삭제 (실제 파일은 그대로)"} onClick={onRemove} />
+            )}
+          </div>
         )}
       </div>
       <div style={{ position: "absolute", top: 8, left: 8 }}>
@@ -426,14 +461,113 @@ function FolderCard({
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "0 2px", minWidth: 0 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            <Highlight text={node.name} query={query} />
-          </div>
+          {renaming && onRenameDone ? (
+            <InlineName value={node.name} editing onDone={onRenameDone} style={{ fontSize: 13.5, fontWeight: 500 }} />
+          ) : (
+            <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <Highlight text={node.name} query={query} />
+            </div>
+          )}
           {crumb && parent && <div style={{ fontSize: 11, color: "var(--color-neutral-700)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{parent}</div>}
         </div>
         <span style={{ flex: "none", fontSize: 11, fontVariantNumeric: "tabular-nums", color: state === "all" ? "var(--color-accent-400)" : "var(--color-neutral-600)" }}>{node.total}장</span>
       </div>
     </div>
+  );
+}
+
+function CardButton({ icon, title, onClick }: { icon: string; title: string; onClick: () => void }) {
+  return (
+    <button
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      style={{ width: 26, height: 26, borderRadius: 6, background: "rgba(7,8,12,.75)", color: "var(--color-neutral-400)", display: "flex", alignItems: "center", justifyContent: "center" }}
+    >
+      <i className={`ph ${icon}`} style={{ fontSize: 14 }} />
+    </button>
+  );
+}
+
+function AddCard({ icon, title, hint, onClick }: { icon: string; title: string; hint: string; onClick: () => void }) {
+  return (
+    // explicit widths: Electron's Chromium sizes a <button> grid item to its content instead of stretching it
+    <button className="lib-card" onClick={onClick} style={{ width: "100%", minWidth: 0, display: "flex", flexDirection: "column", gap: 8, padding: 0, textAlign: "center" }}>
+      <div
+        className="lib-cover"
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          padding: "0 10px",
+          aspectRatio: "4/3",
+          borderRadius: 10,
+          border: "1.5px dashed var(--color-border-strong)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          color: "var(--color-neutral-500)",
+          fontSize: 12,
+        }}
+      >
+        <i className={`ph ${icon}`} style={{ fontSize: 26 }} />
+        {title}
+        <span style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>{hint}</span>
+      </div>
+    </button>
+  );
+}
+
+/** text field for renaming a custom folder: Enter or blur saves, Esc cancels (onDone(null)) */
+function InlineName({ value, editing, onDone, style }: { value: string; editing: boolean; onDone: (name: string | null) => void; style?: React.CSSProperties }) {
+  const [draft, setDraft] = useState(value);
+  const done = useRef(false);
+  useEffect(() => {
+    if (editing) {
+      setDraft(value);
+      done.current = false;
+    }
+  }, [editing, value]);
+
+  if (!editing) return <>{value}</>;
+  const finish = (name: string | null) => {
+    if (done.current) return; // Enter/Esc unmount the field, which also fires blur
+    done.current = true;
+    onDone(name);
+  };
+  return (
+    <input
+      data-inline-edit=""
+      autoFocus
+      value={draft}
+      maxLength={60}
+      onFocus={(e) => e.currentTarget.select()}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => finish(draft)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") finish(draft);
+        else if (e.key === "Escape") finish(null);
+        else return;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      style={{
+        width: "100%",
+        minWidth: 0,
+        padding: "2px 6px",
+        margin: "-3px -7px",
+        borderRadius: 6,
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-accent-600)",
+        outline: "none",
+        color: "var(--color-text)",
+        ...style,
+      }}
+    />
   );
 }
 
@@ -492,6 +626,7 @@ function DirectImages({ folder, node, hasKids, selected, files }: { folder: Fold
   }, [folder.id, node.rel_path, node.count]);
 
   const indexByPath = useMemo(() => new Map(files.map((f, i) => [f.path, i])), [files]);
+  const { favorites, hidden, toggleFavorite, toggleHidden } = useImageMarksStore();
 
   return (
     <>
@@ -502,33 +637,88 @@ function DirectImages({ folder, node, hasKids, selected, files }: { folder: Fold
         {(images ?? []).map((f) => {
           const index = indexByPath.get(f.path);
           const inSelection = index !== undefined;
+          const key = imageKey(folder.id, f.path);
+          const isFavorite = favorites.has(key);
+          const isHidden = hidden.has(key);
           return (
-            <button
-              key={f.path}
-              className="lib-img"
-              title={inSelection ? f.name : `${f.name} · 선택하지 않은 폴더`}
-              onClick={() => (inSelection ? openInBrowsing(index) : showNotice("체크한 폴더의 이미지만 열 수 있어요"))}
-              style={{
-                position: "relative",
-                padding: 0,
-                aspectRatio: "3/4",
-                borderRadius: 6,
-                overflow: "hidden",
-                background: "linear-gradient(160deg,#1c1d27,#101118)",
-                border: "1px solid var(--color-divider)",
-                opacity: inSelection ? 1 : 0.4,
-                transition: "opacity .15s",
-              }}
-            >
-              <img src={thumbUrl(folder.id, f.path)} loading="lazy" decoding="async" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-              {f.is_gif && (
-                <span style={{ position: "absolute", top: 5, left: 5, fontSize: 9, letterSpacing: ".04em", padding: "2px 6px", borderRadius: 5, background: "var(--color-accent-800)", color: "var(--color-accent-100)" }}>GIF</span>
-              )}
-            </button>
+            <div key={f.path} className="lib-img-wrap" style={{ position: "relative", minWidth: 0 }}>
+              <button
+                className="lib-img"
+                title={inSelection ? f.name : `${f.name} · 선택하지 않은 폴더`}
+                onClick={() => (inSelection ? openInBrowsing(index) : showNotice("체크한 폴더의 이미지만 열 수 있어요"))}
+                style={{
+                  position: "relative",
+                  width: "100%",
+                  padding: 0,
+                  aspectRatio: "3/4",
+                  borderRadius: 6,
+                  overflow: "hidden",
+                  background: "linear-gradient(160deg,#1c1d27,#101118)",
+                  border: `1px solid ${isFavorite ? "var(--color-accent-700)" : "var(--color-divider)"}`,
+                  opacity: isHidden ? 0.25 : inSelection ? 1 : 0.4,
+                  transition: "opacity .15s",
+                }}
+              >
+                <img
+                  src={thumbUrl(folder.id, f.path)}
+                  loading="lazy"
+                  decoding="async"
+                  draggable={false}
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", filter: isHidden ? "grayscale(1)" : undefined }}
+                />
+                {f.is_gif && (
+                  <span style={{ position: "absolute", left: 5, bottom: 5, fontSize: 9, letterSpacing: ".04em", padding: "2px 6px", borderRadius: 5, background: "var(--color-accent-800)", color: "var(--color-accent-100)" }}>GIF</span>
+                )}
+              </button>
+              <ImageMarkButton
+                icon={isFavorite ? "ph-fill ph-star" : "ph ph-star"}
+                title={isFavorite ? "즐겨찾기 해제" : "즐겨찾기"}
+                on={isFavorite}
+                onClick={() => toggleFavorite(key)}
+                style={{ top: 5, left: 5 }}
+              />
+              <ImageMarkButton
+                icon={isHidden ? "ph ph-eye-slash" : "ph ph-eye"}
+                title={isHidden ? "숨김 해제" : "숨기기"}
+                on={isHidden}
+                onClick={() => toggleHidden(key)}
+                style={{ top: 5, right: 5 }}
+              />
+            </div>
           );
         })}
       </div>
     </>
+  );
+}
+
+/** corner toggle on an image thumbnail: shown on hover, always shown while on */
+function ImageMarkButton({ icon, title, on, onClick, style }: { icon: string; title: string; on: boolean; onClick: () => void; style: React.CSSProperties }) {
+  return (
+    <button
+      className={`lib-mark${on ? " on" : ""}`}
+      title={title}
+      aria-pressed={on}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      style={{
+        position: "absolute",
+        width: 24,
+        height: 24,
+        borderRadius: 6,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "rgba(7,8,12,.72)",
+        backdropFilter: "blur(4px)",
+        color: on ? "var(--color-accent)" : "var(--color-neutral-300)",
+        ...style,
+      }}
+    >
+      <i className={icon} style={{ fontSize: 14 }} />
+    </button>
   );
 }
 

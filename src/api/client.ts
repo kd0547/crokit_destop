@@ -1,4 +1,4 @@
-import type { FolderFile, FolderInfo, FolderSelectionItem, HistoryEntry, Settings } from "@/types";
+import type { CustomImage, FolderFile, FolderInfo, FolderSelectionItem, HistoryEntry, Settings } from "@/types";
 
 const base = () => window.crokit.apiBase;
 
@@ -57,6 +57,19 @@ export const api = {
   listFolderFiles: (id: string, relPath = "") => req<FolderFile[]>(`/folders/${id}/files?rel_path=${encodeURIComponent(relPath)}`),
   /** playlist for a multi-folder selection */
   listSelectionFiles: (items: FolderSelectionItem[]) => req<FolderFile[]>("/folders/files", { method: "POST", body: JSON.stringify({ items }) }),
+
+  createCustomFolder: (name?: string) => req<FolderInfo>("/custom/folders", { method: "POST", body: JSON.stringify({ name }) }),
+  renameCustomFolder: (id: string, name: string) => req<FolderInfo>(`/custom/folders/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  /** copy a dropped image into a custom folder (raw body upload); no folderId = the first custom folder, created if none */
+  addCustomImage: async (file: File, folderId?: string): Promise<CustomImage> => {
+    const path = `/custom/images?filename=${encodeURIComponent(file.name || "image")}${folderId ? `&folder_id=${encodeURIComponent(folderId)}` : ""}`;
+    const res = await fetch(`${base()}${path}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new ApiError(res.status, `POST ${path} failed: ${res.status} ${body}`, parseDetail(body));
+    }
+    return res.json();
+  },
 
   getGifFrames: (path: string) => req<{ frames: string[] }>(`/gif/frames?path=${encodeURIComponent(path)}`),
 

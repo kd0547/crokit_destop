@@ -55,6 +55,47 @@ input {
   -webkit-app-region: no-drag;
 }
 
+.window-button {
+  width: 46px;
+  flex: none;
+}
+
+@media (480px <= width < 640px) {
+  .topbar {
+    gap: 4px !important;
+  }
+
+  .top-menu-button {
+    padding-inline: 6px !important;
+    white-space: nowrap;
+  }
+
+  .library-label {
+    display: none;
+  }
+
+  .window-button {
+    width: 34px;
+  }
+}
+
+@media (width < 480px) {
+  .topbar {
+    gap: 2px !important;
+    padding-left: 2px !important;
+  }
+
+  .window-button {
+    width: clamp(24px, 8vw, 34px);
+  }
+}
+
+@media (width < 160px) {
+  .window-button:not(:last-child) {
+    display: none;
+  }
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -138,4 +179,23 @@ input {
 }
 .lib-img:hover {
   border-color: var(--color-accent-600) !important;
+}
+.lib-img-wrap .lib-mark {
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s;
+}
+.lib-img-wrap:hover .lib-mark,
+.lib-img-wrap .lib-mark.on,
+.lib-img-wrap .lib-mark:focus-visible {
+  opacity: 1;
+}
+.lib-img-wrap .lib-mark:not(.on):hover {
+  color: var(--color-text) !important;
+}
+
+/* custom folder card that dropped pictures will be saved into */
+.lib-card.drop-target .lib-cover {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 2px var(--color-accent) !important;
+  transform: translateY(-2px);
 }

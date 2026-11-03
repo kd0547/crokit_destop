@@ -1,4 +1,5 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
+import { access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { API_BASE, startPythonBackend, stopPythonBackend } from "./pythonBridge";
@@ -39,6 +40,11 @@ function broadcastSessionUpdate() {
 }
 
 function registerIpcHandlers() {
+  ipcMain.handle("files:showInFolder", async (_event, filePath: string) => {
+    if (typeof filePath !== "string" || !path.isAbsolute(filePath)) throw new Error("invalid file path");
+    await access(filePath);
+    shell.showItemInFolder(filePath);
+  });
   ipcMain.handle("window:minimize", (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
@@ -68,9 +74,12 @@ function registerIpcHandlers() {
     });
   });
 
-  // renderer decodes the image and sends PNG bytes (see src/lib/clipboard.ts)
-  ipcMain.handle("clipboard:writeImage", (_event, png: ArrayBuffer | Uint8Array) => {
-    const image = nativeImage.createFromBuffer(Buffer.from(png as ArrayBuffer));
+  // renderer decodes the image and sends a PNG data URL (see src/lib/clipboard.ts)
+  ipcMain.handle("clipboard:writeImage", (_event, png: string) => {
+    if (typeof png !== "string" || !png.startsWith("data:image/png;base64,")) {
+      throw new Error("invalid PNG data URL");
+    }
+    const image = nativeImage.createFromDataURL(png);
     if (image.isEmpty()) throw new Error("invalid image data");
     clipboard.writeImage(image);
   });
@@ -89,6 +98,8 @@ function registerIpcHandlers() {
   ipcMain.handle("session:stop", () => session.stop());
   ipcMain.handle("session:next", () => session.next());
   ipcMain.handle("session:previous", () => session.previous());
+  ipcMain.handle("session:extend", (_event, ms: number) => session.extend(Number(ms)));
+  ipcMain.handle("session:resetTimer", () => session.resetTimer());
   ipcMain.handle("session:getSnapshot", () => session.getSnapshot());
 
   session.on("update", broadcastSessionUpdate);

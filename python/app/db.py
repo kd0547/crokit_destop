@@ -25,6 +25,13 @@ THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
 # and source edits (THUMBNAIL_DIR is a cache that gets invalidated/cleared)
 HISTORY_THUMBNAIL_DIR = _DATA_DIR / "history_thumbnails"
 HISTORY_THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
+# app-managed "커스텀" folders (kind = 'custom'): images dropped onto the app are
+# copied into CUSTOM_DIR/<folder id>/ -- see routers/custom.py. Their display name
+# lives only in the db, so renaming never touches the disk.
+CUSTOM_DIR = _DATA_DIR / "custom"
+CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
+CUSTOM_FOLDER_NAME = "커스텀"
+FOLDER_KINDS = ("linked", "custom")  # linked = a directory the user registered
 
 
 DEFAULT_DURATION_PRESETS = [{"seconds": 30}, {"seconds": 60}, {"seconds": 120}, {"seconds": 300}, {"seconds": 600}]
@@ -116,7 +123,8 @@ def init_db() -> None:
                 name TEXT NOT NULL,
                 path TEXT NOT NULL,
                 order_index INTEGER NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'linked'
             );
 
             CREATE TABLE IF NOT EXISTS session_history (
@@ -158,6 +166,10 @@ def init_db() -> None:
             );
             """
         )
+        folder_cols = {r["name"] for r in conn.execute("PRAGMA table_info(folders)").fetchall()}
+        if "kind" not in folder_cols:
+            conn.execute("ALTER TABLE folders ADD COLUMN kind TEXT NOT NULL DEFAULT 'linked'")
+        _migrate_single_custom_folder(conn)
         history_cols = {r["name"] for r in conn.execute("PRAGMA table_info(session_history)").fetchall()}
         if "folder_id" not in history_cols:
             conn.execute("ALTER TABLE session_history ADD COLUMN folder_id TEXT")
@@ -205,6 +217,24 @@ def init_db() -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate_single_custom_folder(conn: sqlite3.Connection) -> None:
+    """The first version kept one custom folder (id 'custom') with its images
+    directly in CUSTOM_DIR; now each custom folder has its own subdirectory."""
+    row = conn.execute("SELECT path, kind FROM folders WHERE id = 'custom'").fetchone()
+    if row is None:
+        return
+    if row["kind"] != "custom":
+        conn.execute("UPDATE folders SET kind = 'custom' WHERE id = 'custom'")
+    if Path(row["path"]).resolve() != CUSTOM_DIR.resolve():
+        return
+    target = CUSTOM_DIR / "custom"
+    target.mkdir(parents=True, exist_ok=True)
+    for p in list(CUSTOM_DIR.iterdir()):
+        if p.is_file():
+            p.replace(target / p.name)
+    conn.execute("UPDATE folders SET path = ? WHERE id = 'custom'", (str(target),))
 
 
 def settings_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:

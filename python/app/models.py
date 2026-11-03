@@ -103,6 +103,7 @@ class FolderOut(BaseModel):
     name: str
     path: str
     order_index: int
+    kind: str = "linked"        # "linked" = 사용자가 등록한 폴더, "custom" = 앱이 관리하는 커스텀 폴더
     count: int                  # 하위 폴더 포함 이미지 수 (= tree.total)
     tree: FolderNode
 
@@ -110,6 +111,10 @@ class FolderOut(BaseModel):
 class AddFolderRequest(BaseModel):
     path: str
     name: Optional[str] = None
+
+
+class CustomFolderRequest(BaseModel):
+    name: Optional[str] = None  # 생성 시 생략하면 "커스텀", "커스텀 2", ...
 
 
 class FolderFile(BaseModel):

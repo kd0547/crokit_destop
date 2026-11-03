@@ -132,7 +132,7 @@ function TopMenuButton({ def, anyOpen }: { def: MenuDef; anyOpen: boolean }) {
     <div style={{ position: "relative", height: "100%", display: "flex", alignItems: "center" }}>
       <button
         ref={btnRef}
-        className="no-drag"
+        className="no-drag top-menu-button"
         onClick={() => {
           place();
           setMenuOpen(open ? null : def.key);
@@ -160,6 +160,18 @@ function TopMenuButton({ def, anyOpen }: { def: MenuDef; anyOpen: boolean }) {
 }
 
 export function TopBar() {
+  const [compact, setCompact] = useState(() => window.innerWidth < 480);
+  const setMenuOpen = useUiStore((s) => s.setMenuOpen);
+  useEffect(() => {
+    const query = window.matchMedia("(width < 480px)");
+    const update = () => {
+      setCompact(query.matches);
+      setMenuOpen(null);
+    };
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, [setMenuOpen]);
   const { settings } = useSettingsStore();
   const snapshot = useSessionStore((s) => s.snapshot);
   const menuOpen = useUiStore((s) => s.menuOpen);
@@ -219,7 +231,7 @@ export function TopBar() {
 
   return (
     <div
-      className="drag-region"
+      className="drag-region topbar"
       style={{
         height: 34,
         flex: "none",
@@ -232,8 +244,8 @@ export function TopBar() {
         position: "relative",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 1, height: "100%", position: "relative", zIndex: 30 }}>
-        {!settings?.panel_open && (
+      <div style={{ display: "flex", flexShrink: 0, alignItems: "center", gap: 1, height: "100%", position: "relative", zIndex: 30 }}>
+        {!compact && !settings?.panel_open && (
           <button
             className="btn btn-ghost btn-icon no-drag"
             title="패널 열기 ( [ )"
@@ -243,36 +255,62 @@ export function TopBar() {
             <i className="ph ph-sidebar-simple" style={{ fontSize: 15 }} />
           </button>
         )}
-        {menus.map((m) => (
+        {compact ? (
+          <>
+            <button
+              className="btn btn-ghost btn-icon no-drag"
+              title="메뉴"
+              aria-label="메뉴"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen === "compact"}
+              onClick={() => setMenuOpen(menuOpen === "compact" ? null : "compact")}
+              style={{ width: 30, height: 26 }}
+            >
+              <i className="ph ph-list" style={{ fontSize: 19 }} />
+            </button>
+            {menuOpen === "compact" && (
+              <MenuList
+                entries={[
+                  ...(showBack ? [{ label: "라이브러리", onClick: () => setBrowsing(true) }, "separator" as const] : []),
+                  ...menus.flatMap((m): MenuEntry[] => [
+                    { custom: <div style={{ padding: "6px 10px", fontSize: 11, color: "var(--color-neutral-500)" }}>{m.label}</div> },
+                    ...m.entries,
+                  ]),
+                ]}
+                onClose={() => setMenuOpen(null)}
+                width={260}
+                style={{ left: 6, top: 38, maxWidth: "calc(100vw - 12px)", maxHeight: "calc(100vh - 44px)", overflowY: "auto" }}
+              />
+            )}
+          </>
+        ) : menus.map((m) => (
           <TopMenuButton key={m.key} def={m} anyOpen={menuOpen !== null} />
         ))}
       </div>
 
-      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", fontSize: 12, color: "var(--color-neutral-600)", pointerEvents: "none" }}>
-        {windowTitle}
+      <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", textAlign: "center", fontSize: 12, color: "var(--color-neutral-600)", pointerEvents: "none", whiteSpace: "nowrap" }}>
+        {!compact && windowTitle}
       </div>
 
-      <div style={{ flex: 1 }} />
-
-      {showBack && (
+      {showBack && !compact && (
         <button
           className="btn btn-ghost no-drag"
           onClick={() => setBrowsing(true)}
           title="폴더 라이브러리"
-          style={{ height: 24, padding: "0 8px", gap: 5, fontSize: 12, marginRight: 6, color: "var(--color-neutral-400)" }}
+          style={{ flexShrink: 0, whiteSpace: "nowrap", height: 24, padding: "0 8px", gap: 5, fontSize: 12, marginRight: 6, color: "var(--color-neutral-400)" }}
         >
           <i className="ph ph-squares-four" style={{ fontSize: 13 }} />
-          라이브러리
+          <span className="library-label">라이브러리</span>
         </button>
       )}
 
-      <div style={{ width: 184, height: "100%", display: "flex", justifyContent: "flex-end" }}>
-        <WindowButton
+      <div className="window-controls" style={{ flexShrink: 0, height: "100%", display: "flex", justifyContent: "flex-end" }}>
+        {!compact && <WindowButton
           icon={settings?.always_on_top ? "ph-fill ph-push-pin" : "ph ph-push-pin"}
           title={settings?.always_on_top ? "항상 위 해제" : "항상 위에 표시"}
           active={!!settings?.always_on_top}
           onClick={() => toggleAlwaysOnTop()}
-        />
+        />}
         <WindowButton icon="ph-minus" title="최소화" onClick={() => window.crokit.window.minimize()} />
         <WindowButton icon="ph-corners-out" title="전체화면" onClick={() => window.crokit.window.toggleFullscreen()} />
         <WindowButton icon="ph-x" title="닫기" danger onClick={() => window.crokit.window.close()} />
@@ -285,11 +323,10 @@ function WindowButton({ icon, title, onClick, danger, active }: { icon: string; 
   const restColor = active ? "var(--color-accent)" : "var(--color-neutral-500)";
   return (
     <button
-      className="no-drag"
+      className="no-drag window-button"
       title={title}
       onClick={onClick}
       style={{
-        width: 46,
         height: "100%",
         display: "flex",
         alignItems: "center",
